@@ -1,0 +1,138 @@
+from __future__ import print_function
+
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+import argparse
+from copy import deepcopy
+import utils
+import re
+import torch
+from torch.utils.data import Dataset
+from torchvision import datasets
+from torchvision.transforms import ToTensor
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from torchvision import datasets, transforms
+from torch.optim.lr_scheduler import StepLR
+from torch.nn.parameter import Parameter
+import time
+
+def load_data(features = ['v', 'q', 'pwm']):
+  dim_a = 3
+  features = ['v', 'q', 'pwm']
+  label = 'fa'
+
+  # Training data collected from the neural-fly drone
+  dataset = 'neural-fly' 
+  dataset_folder = 'data/training'
+
+  # # Training data collected from an intel aero drone
+  # dataset = 'neural-fly-transfer'
+  # dataset_folder = 'data/training-transfer'
+  # hover_pwm = 910 # mean hover pwm for neural-fly drone
+  # intel_hover_pwm = 1675 # mean hover pwm for intel-aero drone
+  # hover_pwm_ratio = hover_pwm / intel_hover_pwm # scaling ratio from system id
+
+  modelname = f"{dataset}_dim-a-{dim_a}_{'-'.join(features)}" # 'intel-aero_fa-num-Tsp_v-q-pwm'
+  RawData = utils.load_data(dataset_folder)
+  Data = utils.format_data(RawData, features=features, output=label)
+  options = {}
+  options['dim_x'] = Data[0].X.shape[1]
+  options['dim_y'] = Data[0].Y.shape[1]
+  options['num_c'] = len(Data)
+  options['features'] = features
+  options['dim_a'] = dim_a
+  options['loss_type'] = 'crossentropy-loss'
+
+  options['shuffle'] = True # True: shuffle trajectories to data points
+  options['K_shot'] = 32 # number of K-shot for least square on a
+  options['phi_shot'] = 256 # batch size for training phi
+
+  options['alpha'] = 0.01 # adversarial regularization loss
+  options['learning_rate'] = 5e-4
+  options['frequency_h'] = 2 # how many times phi is updated between h updates, on average
+  options['SN'] = 2. # maximum single layer spectral norm of phi
+  options['gamma'] = 10. # max 2-norm of a
+  options['num_epochs'] = 1000
+  print('dims of (x, y) are', (options['dim_x'], options['dim_y']))
+  print('there are ' + str(options['num_c']) + ' different conditions')
+  return RawData, options
+
+def sample_data(data, size):
+  number_of_rows = data.shape[0]
+  random_indices = np.random.choice(number_of_rows, 
+                                    size=size, 
+                                    replace=False)
+  return random_indices
+
+
+def extract_features(rawdata, features):
+  feature_data = []
+  hover_pwm_ratio = 1.
+  for feature in features:
+    if isinstance(rawdata[feature], str):
+      condition_list = re.findall(r'\d+', rawdata[feature]) 
+      condition = 0 if condition_list == [] else float(condition_list[0])
+      feature_data.append(np.tile(condition,(len(rawdata['v']),1)))
+      continue
+    feature_len = rawdata[feature].shape[1] if len(rawdata[feature].shape)>1 else 1
+    if feature == 'pwm':
+        feature_data.append(rawdata[feature] / 1000 * hover_pwm_ratio)
+    else:
+        feature_data.append(rawdata[feature].reshape(rawdata[feature].shape[0],feature_len))
+    # print(feature_data) 
+  feature_data = np.hstack(feature_data)
+  return feature_data
+
+def generate_task_sample(data_model, raw_task_data, shared_features, idx, sample_size, eps=True):
+    shared_input = extract_features(raw_task_data,shared_features)
+    random_indices = sample_data(shared_input, size = int(sample_size))
+    sub_sample = shared_input[random_indices,:]
+    shared_y = data_model.forward_shared(torch.Tensor(sub_sample)).detach().numpy()
+    sub_features = np.zeros((1,6))
+    sub_features[0][idx] = np.mean(raw_task_data["t"])
+    mul = np.dot(sub_features, shared_y.T)
+    # if not len(mul) == 0:
+    #     mul *= (10/mul.max())
+    if eps: 
+        y = mul + np.random.normal(0,0.01,mul.shape)
+    else:
+        y = mul
+    return sub_sample, y.T
+  
+def generate_sample(NN, raw_data, options, sample_size, v, shared_features, eps=True):
+  sample = np.array([]).reshape(0,options["dim_x"])
+  ys = np.array([]).reshape(0,1)
+  for idx, vi in enumerate(v):
+    data = raw_data[idx]
+    teak_sample_size = int(sample_size*vi)
+    sub_sample, y = generate_task_sample(NN, data, shared_features, idx, teak_sample_size, eps)
+    sample = np.vstack([sample, sub_sample])
+    ys = np.vstack([ys, y])
+  return sample, ys
+
+def generate_sample_H(NN, raw_data, options, sample_size, v, shared_features, task_data = None, eps=True):
+  if task_data is None:
+    task_data_x = {}
+    task_data_y = {}
+    for idx, vi in enumerate(v):
+      task_data_x[idx] = np.array([]).reshape(0,options["dim_x"])
+      task_data_y[idx] = np.array([]).reshape(0,1)
+    task_data = [task_data_x, task_data_y]
+  task_data_x, task_data_y = task_data
+  for idx, vi in enumerate(v):
+    data = raw_data[idx]
+    task_sample_size = int(sample_size*vi)
+    sub_sample, y = generate_task_sample(NN, data, shared_features, idx, task_sample_size, eps)
+    task_data_x[idx] = np.vstack([task_data_x[idx], sub_sample])
+    task_data_y[idx] = np.vstack([task_data_y[idx], y])
+  return task_data_x, task_data_y
+
+def get_dataset(data_model, raw_data, options, sample_size, shared_features, v):
+  target_idx = 0
+  target_data_size = 100
+  task_data_x, task_data_y = generate_sample_H(data_model, raw_data, options, sample_size, v, shared_features)
+  test_data, test_label = generate_task_sample(data_model, raw_data[target_idx], shared_features,target_idx, target_data_size)
+  return (task_data_x, task_data_y), (test_data, test_label)

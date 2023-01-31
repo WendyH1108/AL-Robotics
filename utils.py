@@ -6,6 +6,7 @@ from collections import namedtuple
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import re
 
 folder = './data/experiment'
 filename_fields = ['vehicle', 'trajectory', 'method', 'condition']
@@ -76,7 +77,7 @@ def load_data(folder : str, expnames = None) -> List[dict]:
     return Data
 
 
-SubDataset = namedtuple('SubDataset', 'X Y C meta')
+SubDataset = namedtuple('SubDataset', 'X Y C condition v_d meta')
 feature_len = {}
 
 def format_data(RawData: List[Dict['str', np.ndarray]], features: 'list[str]' = ['v', 'q', 'pwm'], output: str = 'fa', hover_pwm_ratio = 1.):
@@ -104,9 +105,12 @@ def format_data(RawData: List[Dict['str', np.ndarray]], features: 'list[str]' = 
 
         # Pseudo-label for cross-entropy
         C = i
+        condition_list = re.findall(r'\d+',data['condition'])
+        condition = 0 if condition_list == [] else condition_list[0]
+        v_d = np.zeros(0) if "v_d" not in data.keys() else data["v_d"]
 
         # Save to dataset
-        Data.append(SubDataset(X, Y, C, {'method': data['method'], 'condition': data['condition'], 't': data['t']}))
+        Data.append(SubDataset(X, Y, C, condition, v_d, {'method': data['method'], 'condition': data["condition"], 't': data['t'], 'v_d':v_d}))
 
     return Data
 
