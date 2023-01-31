@@ -133,6 +133,6 @@ def generate_sample_H(NN, raw_data, options, sample_size, v, shared_features, ta
 def get_dataset(data_model, raw_data, options, sample_size, shared_features, v):
   target_idx = 0
   target_data_size = 100
-  task_data_x, task_data_y = generate_sample_H(data_model, raw_data, options, sample_size, v, shared_features)
-  test_data, test_label = generate_task_sample(data_model, raw_data[target_idx], shared_features,target_idx, target_data_size)
+  task_data_x, task_data_y = generate_sample_H(data_model, raw_data, options, sample_size, v, shared_features, None, True)
+  test_data, test_label = generate_task_sample(data_model, raw_data[target_idx], shared_features,target_idx, target_data_size, False)
   return (task_data_x, task_data_y), (test_data, test_label)
