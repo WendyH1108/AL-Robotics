@@ -18,10 +18,28 @@ from torchvision import datasets, transforms
 from torch.optim.lr_scheduler import StepLR
 from torch.nn.parameter import Parameter
 import time
+import active_model
+condition = {
+  "nowind" : 0,
+  "10wind" : 1.3,
+  "20wind" : 2.5,
+  "30wind" : 3.7,
+  "35wind" : 4.2,
+  "40wind" : 4.9,
+  "50wind" : 6.1,
+  "70wind" : 8.5
+  }
+random_w = np.random.uniform(low=1, high=30, size=(6,6))
+# norm 1, different direction
+# w close to each other
+# source finite, 
+# discrete and continuous
+# 1. finite & discrete, interpolate
+# 2. continuous, w continuous, latent space
 
 def load_data(features = ['v', 'q', 'pwm']):
   dim_a = 3
-  features = ['v', 'q', 'pwm']
+  # features = ['v', 'q', 'pwm']
   label = 'fa'
 
   # Training data collected from the neural-fly drone
@@ -37,11 +55,11 @@ def load_data(features = ['v', 'q', 'pwm']):
 
   modelname = f"{dataset}_dim-a-{dim_a}_{'-'.join(features)}" # 'intel-aero_fa-num-Tsp_v-q-pwm'
   RawData = utils.load_data(dataset_folder)
-  Data = utils.format_data(RawData, features=features, output=label)
+  # Data = utils.format_data(RawData, features=features, output=label)
   options = {}
-  options['dim_x'] = Data[0].X.shape[1]
-  options['dim_y'] = Data[0].Y.shape[1]
-  options['num_c'] = len(Data)
+  # options['dim_x'] = Data[0].X.shape[1]
+  # options['dim_y'] = Data[0].Y.shape[1]
+  # options['num_c'] = len(Data)
   options['features'] = features
   options['dim_a'] = dim_a
   options['loss_type'] = 'crossentropy-loss'
@@ -56,8 +74,8 @@ def load_data(features = ['v', 'q', 'pwm']):
   options['SN'] = 2. # maximum single layer spectral norm of phi
   options['gamma'] = 10. # max 2-norm of a
   options['num_epochs'] = 1000
-  print('dims of (x, y) are', (options['dim_x'], options['dim_y']))
-  print('there are ' + str(options['num_c']) + ' different conditions')
+  # print('dims of (x, y) are', (options['dim_x'], options['dim_y']))
+  # print('there are ' + str(options['num_c']) + ' different conditions')
   return RawData, options
 
 def sample_data(data, size):
@@ -91,11 +109,12 @@ def generate_task_sample(data_model, raw_task_data, shared_features, idx, sample
     random_indices = sample_data(shared_input, size = int(sample_size))
     sub_sample = shared_input[random_indices,:]
     shared_y = data_model.forward_shared(torch.Tensor(sub_sample)).detach().numpy()
-    sub_features = np.zeros((1,6))
-    sub_features[0][idx] = np.mean(raw_task_data["t"])
+    # sub_features = np.zeros((1,6))
+    # sub_features[0][idx] = np.mean(raw_task_data["t"])
+    # sub_features = np.tile([condition[raw_task_data["condition"]]],(1,6))
+    # sub_features[0][idx] = condition[raw_task_data["condition"]]
+    sub_features = random_w[idx].reshape((1,6))
     mul = np.dot(sub_features, shared_y.T)
-    # if not len(mul) == 0:
-    #     mul *= (10/mul.max())
     if eps: 
         y = mul + np.random.normal(0,0.01,mul.shape)
     else:
