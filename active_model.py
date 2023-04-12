@@ -22,7 +22,7 @@ def maybe_sn(m, use_sn):
     return spectral_norm(m) if use_sn else m
   
 class MLP(nn.Module):
-    def __init__(self, input_dim, output_dim, hidden_dims, spectral_norms, num_task, datamodel = False, random = True):
+    def __init__(self, input_dim, output_dim, hidden_dims, spectral_norms, dims, num_task=6, datamodel = False, random = True):
         super(MLP, self).__init__()
         assert len(hidden_dims) == len(spectral_norms)
         layers = []
@@ -37,15 +37,20 @@ class MLP(nn.Module):
             
 
             input_dim = dim
-        layers += [nn.Linear(input_dim, num_task)]
+        w_dim,rep_dim = dims
+        if datamodel:
+          layers += [nn.Linear(input_dim, rep_dim)]
+        else:
+          layers += [nn.Linear(input_dim, w_dim)]
+          layers += [nn.Linear(w_dim, rep_dim)]
         self.net = nn.Sequential(*layers)
         
         if not datamodel:
           self.last_layers = nn.ModuleList([])
-          self.last_layers.append(nn.Linear(num_task, output_dim))
+          self.last_layers.append(nn.Linear(rep_dim, output_dim))
           self.target_reset()
           for idx in range(num_task):
-              self.last_layers.append(nn.Linear(num_task, output_dim))
+              self.last_layers.append(nn.Linear(rep_dim, output_dim))
               nn.init.constant_(self.last_layers[idx+1].weight, 0)
               nn.init.constant_(self.last_layers[idx+1].bias, 0)
         
@@ -136,17 +141,17 @@ def train_source(model, datasets, num_tasks, optimizer, epoch, need_print):
   optimizer.zero_grad()
   for task_id in range(num_tasks):
       data, target = datasets[0][task_id],torch.Tensor(datasets[1][task_id])
+      # data, target = datasets[0],torch.Tensor(datasets[1])
       representation = model.forward_shared(data)
       output = model.forward_nonshared(representation, task_id)
       loss = F.mse_loss(output.float(), target.float(),reduction = "sum")
-      if not data.shape[0] == 0:
-        total_Loss += loss.item()/data.shape[0]
+      total_Loss += loss.item()
       loss.backward()
       total_sample_size += data.shape[0]
   torch.nn.utils.clip_grad_norm_(model.parameters(), 5)
   optimizer.step()   
   if need_print:
-        print('Train Epoch: {} [total loss on source: {:.6f}]'.format(epoch,total_Loss/num_tasks))        
+        print('Train Epoch: {} [total loss on source: {:.6f}]'.format(epoch,total_Loss/num_tasks))   
   return total_Loss/total_sample_size
   
 def train_target(model, dataset, optimizer, epoch, need_print = True):
@@ -155,17 +160,16 @@ def train_target(model, dataset, optimizer, epoch, need_print = True):
   optimizer.zero_grad()
   data, target = dataset[0],dataset[1]
   with torch.no_grad():
-      representation = model.forward_shared(data)
+    representation = model.forward_shared(data)
   # model.target_reset() # reset target task # ok?
   output = model.forward_nonshared_target(representation)
   loss = F.mse_loss(output.float(), target.float(),reduction = "sum")
   total_Loss +=loss.item()
   loss.backward()
-  optimizer.step()
   torch.nn.utils.clip_grad_norm_(model.parameters(), 5)
   optimizer.step()   
   if need_print:
-        print('Train Epoch: {} [total loss on target: {:.6f}]'.format(epoch,total_Loss))        
+        print('Train Epoch: {} [total loss on target: {:.6f}]'.format(epoch,total_Loss/dataset[1].shape[0]))        
   return total_Loss/dataset[1].shape[0]
 
 
@@ -192,37 +196,36 @@ def estimate(model, input, true_y, num_task, v):
     result = model.predict(input, true_y, task_id)
     results.append(result)
   best_w_idx = np.argmin(results)
-  # print(ws)
-  # print(best_w_idx)
-  # best_w = ws[best_w_idx]
   ws = []
   for i, layer in enumerate(model.last_layers[1:]):
     ws.append(layer.weight.detach())
     if best_w_idx == i:
       best_w = layer.weight.detach()
   v = 0.8 * v + 0.2 * update_v(ws, best_w)
-  # v = np.array([1]*len(RawData))
-  # v = v / (len(RawData))
   v = np.apply_along_axis(lambda x: max(0.167, x), 0, [v])
   if not len(v.shape) == 1:
     v = v[0]
   return v, best_w
 
 def findTargetWeight(lr,target_dataset,model,gamma=0.9, need_print = True):
-    optimizer = optim.Adadelta(model.parameters(), lr=lr)
-    scheduler = StepLR(optimizer, step_size=30, gamma=gamma)
+    optimizer = optim.SGD(model.parameters(), lr=lr)
+    scheduler = StepLR(optimizer, step_size=100, gamma = gamma)
     model.target_reset()
     lowest = True
     epoch = 0
     prev_loss = np.inf
+    total_loss = 0
     # for epoch in range(1, num_target_epochs):
-    while lowest:
+    while True:
         loss = train_target(model,target_dataset, optimizer, epoch, need_print)
-        lowest = False if prev_loss < loss else True
+        total_loss += loss
+        if prev_loss <= loss:
+            break
         epoch += 1
-        scheduler.step()    
-    w_est_ada = torch.transpose(model.fc2[0].weight.cpu(),1,0)
-    return model,w_est_ada
+        scheduler.step()
+        prev_loss = loss  
+    w_est_ada = model.last_layers[0].weight
+    return model,w_est_ada, total_loss/epoch
   
 # if __name__=="main":
 #   model = 

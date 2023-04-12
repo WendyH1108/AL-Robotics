@@ -29,7 +29,36 @@ condition = {
   "50wind" : 6.1,
   "70wind" : 8.5
   }
-random_w = np.random.uniform(low=1, high=30, size=(6,6))
+num_task = 6
+subspace = 2
+# random_w=np.random.uniform(low=0, high=1, size=(1,num_task))
+# for i in range(num_task):
+#   mask = np.ones((1,num_task))
+#   mask[0][i] = 0
+#   new_w = np.random.uniform(low=0, high=1, size=(1,num_task))
+#   new_w = mask * new_w
+#   main_dirc = np.random.uniform(low=2, high=4)
+#   new_w[0][i] = main_dirc
+#   random_w = np.concatenate((random_w, new_w))
+# random_w = random_w[1:]
+
+# Continuous
+# def generate_matrics(s_type):
+  # if s_type == "best":
+random_w = np.random.uniform(low=0, high=1, size=(6, 6))
+random_w = np.concatenate((random_w,np.zeros((1,6))),axis = 0 )
+B_matrics = np.random.random((2 , 7))
+Bw = np.dot(B_matrics,random_w)
+# target Bw is the on the same direction with source task 0
+B_matrics[:,B_matrics.shape[1]-1] = Bw[:, 0]
+w_target = np.zeros((7,1))
+w_target[w_target.shape[0]-1][0] = 1
+random_w = np.concatenate((random_w,w_target),axis = 1)
+Bw = np.dot(B_matrics,random_w)
+# if s_type == "uniform":
+# B_matrics = np.random.random((2 , 7))
+# random_w = np.indentity(7)
+
 # norm 1, different direction
 # w close to each other
 # source finite, 
@@ -82,7 +111,7 @@ def sample_data(data, size):
   number_of_rows = data.shape[0]
   random_indices = np.random.choice(number_of_rows, 
                                     size=size, 
-                                    replace=False)
+                                    replace=True)
   return random_indices
 
 
@@ -104,7 +133,14 @@ def extract_features(rawdata, features):
   feature_data = np.hstack(feature_data)
   return feature_data
 
-def generate_task_sample(data_model, raw_task_data, shared_features, idx, sample_size, eps=True):
+
+def generate_task_sample(data_model, 
+                         raw_task_data, 
+                         shared_features, 
+                         idx, 
+                         sample_size, 
+                         eps=True, 
+                         comb = False):
     shared_input = extract_features(raw_task_data,shared_features)
     random_indices = sample_data(shared_input, size = int(sample_size))
     sub_sample = shared_input[random_indices,:]
@@ -113,7 +149,13 @@ def generate_task_sample(data_model, raw_task_data, shared_features, idx, sample
     # sub_features[0][idx] = np.mean(raw_task_data["t"])
     # sub_features = np.tile([condition[raw_task_data["condition"]]],(1,6))
     # sub_features[0][idx] = condition[raw_task_data["condition"]]
-    sub_features = random_w[idx].reshape((1,6))
+    if comb:
+      sub_features = 0.5* random_w[0].reshape((1,num_task)) + 0.5 * random_w[5].reshape((1,num_task))
+    
+    sub_features = np.dot(B_matrics, random_w[:,idx]).reshape((1,subspace))
+    sub_features = Bw[:,idx].reshape((1,subspace))
+    
+    
     mul = np.dot(sub_features, shared_y.T)
     if eps: 
         y = mul + np.random.normal(0,0.01,mul.shape)
