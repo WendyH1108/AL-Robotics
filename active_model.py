@@ -207,7 +207,23 @@ def estimate(model, input, true_y, num_task, v):
     v = v[0]
   return v, best_w
 
+def findEstimateWeight(model, train_dataset,optimizer,scheduler):
+  epoch = 0
+  total_loss = 0
+  prev_loss = np.inf
+  total_loss = 0
+  while True:
+    loss = train_source(model, train_dataset, 6, optimizer, epoch, False)
+    total_loss += loss
+    scheduler.step()
+    if loss >= prev_loss:
+      break
+    prev_loss = loss
+    epoch += 1
+  return model,total_loss/epoch
+
 def findTargetWeight(lr,target_dataset,model,gamma=0.9, need_print = True):
+    # train target weight on target data
     optimizer = optim.SGD(model.parameters(), lr=lr)
     scheduler = StepLR(optimizer, step_size=100, gamma = gamma)
     model.target_reset()
@@ -215,7 +231,6 @@ def findTargetWeight(lr,target_dataset,model,gamma=0.9, need_print = True):
     epoch = 0
     prev_loss = np.inf
     total_loss = 0
-    # for epoch in range(1, num_target_epochs):
     while True:
         loss = train_target(model,target_dataset, optimizer, epoch, need_print)
         total_loss += loss
@@ -226,6 +241,3 @@ def findTargetWeight(lr,target_dataset,model,gamma=0.9, need_print = True):
         prev_loss = loss  
     w_est_ada = model.last_layers[0].weight
     return model,w_est_ada, total_loss/epoch
-  
-# if __name__=="main":
-#   model = 
