@@ -5,6 +5,8 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, Subset
 import torch.nn.functional as F
 from tqdm import tqdm
+import torch.nn as nn
+
 
 from model.shallow import ModifiedShallow
 from trainer.trainer import *
@@ -18,7 +20,7 @@ class PyTorchPassiveTrainer():
         super(PyTorchPassiveTrainer, self).__init__()
         self.trainer_config = trainer_config
         self.model = model
-        assert isinstance(self.model, ModifiedShallow), "Only support shallow model for now."
+        assert isinstance(self.model, nn.Module), "Only support nn.Module for now."
 
     def train(self, dataset, train_task_name_list, freeze_rep = False, need_print = False):
         """
@@ -38,8 +40,7 @@ class PyTorchPassiveTrainer():
         
         self.model.cuda()
         counter = 0
-        for epoch in tqdm(range(max_epoch), desc="Training Epoch"):
-
+        for epoch in tqdm(range(max_epoch), desc="Training: "):
             loader = DataLoader(train_dataset, batch_size=self.trainer_config["train_batch_size"], shuffle=True,
                                 num_workers=self.trainer_config["num_workers"],
                                 drop_last=(len(train_dataset) >= self.trainer_config["train_batch_size"]))
@@ -59,17 +60,16 @@ class PyTorchPassiveTrainer():
                     nn.utils.clip_grad_norm_(params, self.trainer_config["clip_grad"])
                 optimizer.step()
             if need_print:
-                print('Train Epoch: {} [total loss on on {}: {:.6f}]'.format(epoch, train_task_name_list, total_Loss/len(train_dataset))) 
-        print('Finish training after epoch: {} [total loss on {}: {:.6f}]'.format(epoch, train_task_name_list, total_Loss/len(train_dataset))) 
+                print('Train Epoch: {} [total loss on on : {:.6f}] with lr {:.3f}'.format(epoch,  total_Loss/len(train_dataset), optimizer.param_groups[0]['lr'])) 
+        print('Finish training after epoch: {} [total loss on : {:.6f}]'.format(epoch, total_Loss/len(train_dataset))) 
 
     def test(self, dataset, test_task_name_list):
         """
         Train on the given source tasks in task_name_list
         """
-
+        self.model.cuda()
         # Get the training dataset based on the task_name_list.
         test_dataset = dataset.get_dataset(test_task_name_list, mixed=True)
-        print(f"Testing on {len(test_dataset)} samples.")
 
         loader = DataLoader(test_dataset, batch_size=self.trainer_config["test_batch_size"], shuffle=False,
                             num_workers=self.trainer_config["num_workers"])

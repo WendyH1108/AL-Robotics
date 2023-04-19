@@ -34,5 +34,5 @@ class RandomSampling(Strategy):
         #    print(f"v: {v}")
         #    print(f"{v.T @ v}")
 
-        return task_dict, inner_epoch == self.inner_epoch_num - 1
+        return task_dict, inner_epoch == self.inner_epoch_num - 1 if self.inner_epoch_num is not None else True
         

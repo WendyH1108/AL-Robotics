@@ -27,9 +27,9 @@ class MTALSampling(Strategy):
             # If not at the initial epoch, we first use the fine exploration phase to explore the effective subspace of the task space.
             # Then we use the exploitation phase to sample from the source tasks that are close to the target task.
             if inner_epoch == 0:
-                return self.fine_exploration_phase(model, int(budget), outer_epoch), False
+                return self.fine_exploration_phase(model, int(budget**(3/4)), outer_epoch), False
             else:
-                return self.exploitation_phase(model, int(budget**(4/3)), outer_epoch, self.target_task_dict), True
+                return self.exploitation_phase(model, int(budget - budget**(3/4)), outer_epoch, self.target_task_dict), True
             
 
     def rough_exploration_phase(self, model, budget):
@@ -52,7 +52,7 @@ class MTALSampling(Strategy):
         task_dict = {}
         for i, v in enumerate(vh):
             v = np.expand_dims(v,1)
-            task_dict[f"fine_explore_epoch{outer_epoch}_{i}"] = (v, int(budget//embed_matrix.shape[1]))
+            task_dict[f"fine_explore_epoch{outer_epoch}_{i}"] = (v, int(budget//len(vh)))
         return task_dict
     
 
@@ -68,8 +68,9 @@ class MTALSampling(Strategy):
             # TODO : might want to add r cond here when target is not single
             v = np.linalg.lstsq(embed_restrict_matrx, embed_matrx @ target_vector)[0]
             v_norm = np.linalg.norm(v)
-            print(f"estimated direction norm with B : {embed_restrict_matrx @ v}")
             v = v/v_norm
+            # print(f"estimated direction norm with B : {embed_restrict_matrx @ v/np.linalg.norm(embed_restrict_matrx @ v)}")
+            # print(f"estimated direction norm : {v}")    
             task_dict[f"exploit_epoch{outer_epoch}_{counter}"] = (v, int(budget//len(target_task_dict))) #TODO: multiply with np.linalg.norm(v)?
             counter += 1
         return task_dict

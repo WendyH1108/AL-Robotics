@@ -1,29 +1,27 @@
 import torch
 import torch.nn as nn
-from torchvision.ops import MLP
 
+class ModifiedBiLinear(nn.Module):
 
-class ModifiedShallow(nn.Module):
-    #TODO: check bias
-
-    def __init__(self, num_input, num_output, hidden_layers, ret_emb):
-        super(ModifiedShallow, self).__init__()
-        self.shallow_model = MLP(in_channels=num_input, hidden_channels=hidden_layers, norm_layer=None, dropout=0.0)
-        self.linear = nn.Linear(hidden_layers[-1], num_output)
+    def __init__(self, num_input, num_output, embed_dim, ret_emb):
+        super(ModifiedBiLinear, self).__init__()
+        self.linear1 = nn.Linear(num_input, embed_dim)
+        self.linear2 = nn.Linear(embed_dim, num_output)
         self.num_output = num_output
         self.num_input = num_input
+        self.embed_dim = embed_dim
         self.ret_emb = ret_emb
 
     def forward(self, features, w=None, ret_feat_and_label=False, freeze=False):
         if freeze:
             with torch.no_grad():
-                features = self.shallow_model(features)
+                features = self.linear1(features)
         else:
-            features = self.shallow_model(features)
+            features = self.linear1(features)
 
         if self.ret_emb:
             return features
-        
+
         assert w is not None and len(w.shape) == 2, "w should be a 2-d matrix."
         assert w.shape[0] == self.num_output, "w should be of shape (num_output, ...)."
         assert w.shape[1] == 1 or w.shape[1] == len(features), "w should be of shape (..., num_input) or (..., 1)"
@@ -35,16 +33,18 @@ class ModifiedShallow(nn.Module):
             return labels, features.data
         else:
             return labels
+
+            
         
     def get_full_task_embed_matrix(self):
         # Get the full embedding matrix, which is a d x d matrix.
-        return self.linear.weight.mT.clone().detach().cpu().numpy()
+        return self.linear2.weight.mT.clone().detach().cpu().numpy()
     
     def get_restricted_task_embed_matrix(self):
         # Get embedding matrix restricted to the subspace spanned by the columns of proj_matrix.
         # Here when using source samples, we can only get a accurate estimation on the subspace spanned by the source samples.
         # TODO: a more general way ?
-        tmp = self.linear.weight.mT.clone().detach().cpu().numpy()
+        tmp = self.linear2.weight.mT.clone().detach().cpu().numpy()
         tmp[:, -1] = 0
         return tmp
 
@@ -54,5 +54,10 @@ class ModifiedShallow(nn.Module):
     def get_output_dim(self):
         return self.num_output
     
+    def update_input_embedding(self, input_embed_matrix):
+        self.linear1.weight = nn.Parameter(torch.Tensor(input_embed_matrix).mT)
+        self.linear1.bias = nn.Parameter(torch.zeros(self.embed_dim))
 
-    
+    def update_task_embedding(self, task_embed_matrix):
+        self.linear2.weight = nn.Parameter(torch.Tensor(task_embed_matrix).mT)
+        self.linear2.bias = nn.Parameter(torch.zeros(self.num_output))

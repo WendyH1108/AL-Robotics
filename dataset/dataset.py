@@ -67,19 +67,31 @@ class SyntheticDataset:
     embeddings. The dataset also tracks the examples that have been labeled.
     """
 
-    def __init__(self, input_dataset, input_embed_model, task_embed_model, noise_var = 0.0):
+    def __init__(self, input_dataset, input_embed_model, task_embed_model, model=None, noise_var = 0.0):
 
-        #TODO: shared inputs
-        self.input_dataset_pool = torch.Tensor(input_dataset)
+        assert (input_embed_model is not None and task_embed_model is not None) or model is not None, \
+            "Either input_embed_model and task_embed_model or the combined model must be provided."
+        self.input_dataset_pool = torch.Tensor(self.__preprocess(input_dataset))
         self.input_embed_model = input_embed_model
         self.task_embed_model = task_embed_model
+        self.model = model
         self.sampled_train_tasks = {} 
         self.sampled_test_tasks = {}
         self.input_ind_sets = {}
         self.label_sets = {}
         self.batch_size = 100
         self.num_workers = 4
-        self.noise_var = noise_var # Here we consider homogeneous noise for all the tasks.
+        self.default_noise_var = noise_var # Here we consider homogeneous noise for all the tasks.
+
+    def __preprocess(self, dataset):
+        """
+        Preprocess the dataset.
+        :param dataset: dataset to be preprocessed.
+        :return: preprocessed dataset.
+        """
+        dataset_mean = np.mean(dataset, axis=0)
+        dataset_std = np.std(dataset, axis=0)
+        return (dataset - dataset_mean)/dataset_std
 
     def generate_random_inputs(self, n, seed=None):
         """
@@ -92,7 +104,7 @@ class SyntheticDataset:
         selected_idx = np.random.choice(len(self.input_dataset_pool), n)
         return selected_idx, self.input_dataset_pool[selected_idx]
 
-    def generate_synthetic_data(self, task_dict):
+    def generate_synthetic_data(self, task_dict, noise_var=None):
         """
         Generate synthetic data and stores into datasets.
         :param task_dict: dictionary of task name and the corresponding (w, n). 
@@ -100,21 +112,30 @@ class SyntheticDataset:
         :param float noise_var: variance of the noise added to the labels.
         """
 
+        noise_var = self.default_noise_var if noise_var is None else noise_var
         for task_name in task_dict:
             input_indices, inputs = self.generate_random_inputs(task_dict[task_name][1], seed=None)
             w = task_dict[task_name][0]
-            self.input_embed_model.cuda()
-            self.task_embed_model.cuda()
-            self.input_embed_model.eval()
-            self.task_embed_model.eval()
+            if self.model is None:
+                self.input_embed_model.cuda()
+                self.task_embed_model.cuda()
+                self.input_embed_model.eval()
+                self.task_embed_model.eval()
+            else:
+                self.model.cuda()
+                self.model.eval()
             labels = np.zeros((len(inputs), 1))
             counter = 0
-            for i in tqdm(range(0, len(inputs), self.batch_size), desc='Generating data for task: '.format(task_name)):
+            for i in range(0, len(inputs), self.batch_size):
                 input = inputs[i: min(i+self.batch_size, len(inputs))].cuda()
                 with torch.no_grad():
-                    input_embed = self.input_embed_model(input)
-                    label = self.task_embed_model(input_embed, w) \
-                        + torch.randn(input_embed.size(0), 1).cuda() * self.noise_var
+                    if self.model is None:
+                        input_embed = self.input_embed_model(input)
+                        label = self.task_embed_model(input_embed, w) \
+                            + torch.randn(input_embed.size(0), 1).cuda() * noise_var
+                    else:
+                        label = self.model(input, w) \
+                            + torch.randn(input.size(0), 1).cuda() * noise_var
                     labels[counter: (counter + len(label))] = label.data.cpu().numpy()
                 counter += len(label)
 
@@ -151,7 +172,8 @@ class SyntheticDataset:
             for task_name in task_name_list:
                 total_input_indices.extend(self.input_ind_sets[task_name])
                 total_labels.extend(self.label_sets[task_name])
-            total_ws = np.empty((len(total_labels), self.task_embed_model.get_output_dim()))
+            task_dim = self.task_embed_model.get_output_dim() if self.model is None else self.model.get_output_dim()
+            total_ws = np.empty((len(total_labels), task_dim))
             counter = 0
             for task_name in task_name_list:
                 try:
@@ -174,11 +196,13 @@ class SyntheticDataset:
         :param task_name: name of the task.
         """
         if task_name in self.input_ind_sets:
-            del self.input_sets[task_name]
+            del self.input_ind_sets[task_name]
         if task_name in self.label_sets:
             del self.label_sets[task_name]
-        if task_name in self.sampled_tasks:
-            del self.sampled_tasks[task_name]
+        if task_name in self.sampled_test_tasks:
+            del self.sampled_test_tasks[task_name]
+        if task_name in self.sampled_train_tasks:
+            del self.sampled_train_tasks[task_name]
 
     def get_sampled_train_tasks(self):
         """
