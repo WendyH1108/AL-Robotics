@@ -76,6 +76,7 @@ class SyntheticDataset:
         self.task_embed_model = task_embed_model
         self.model = model
         self.sampled_train_tasks = {} 
+        self.sampled_val_tasks = {}
         self.sampled_test_tasks = {}
         self.input_ind_sets = {}
         self.label_sets = {}
@@ -93,18 +94,17 @@ class SyntheticDataset:
         dataset_std = np.std(dataset, axis=0)
         return (dataset - dataset_mean)/dataset_std
 
-    def generate_random_inputs(self, n, seed=None):
+    def __generate_random_inputs(self, n, seed=None):
         """
         Generate random inputs.
         :param n: number of inputs to generate.
         :return: generated inputs.
         """
-        if seed is not None:
-            np.random.seed(seed)
+        np.random.seed(seed)
         selected_idx = np.random.choice(len(self.input_dataset_pool), n)
         return selected_idx, self.input_dataset_pool[selected_idx]
 
-    def generate_synthetic_data(self, task_dict, noise_var=None):
+    def generate_synthetic_data(self, task_dict, noise_var=None, seed=None):
         """
         Generate synthetic data and stores into datasets.
         :param task_dict: dictionary of task name and the corresponding (w, n). 
@@ -112,9 +112,10 @@ class SyntheticDataset:
         :param float noise_var: variance of the noise added to the labels.
         """
 
+        seed = np.random.RandomState(seed).randint(1000000000) if seed is not None else None
         noise_var = self.default_noise_var if noise_var is None else noise_var
         for task_name in task_dict:
-            input_indices, inputs = self.generate_random_inputs(task_dict[task_name][1], seed=None)
+            input_indices, inputs = self.__generate_random_inputs(task_dict[task_name][1], seed=seed)
             w = task_dict[task_name][0]
             if self.model is None:
                 self.input_embed_model.cuda()
@@ -131,13 +132,17 @@ class SyntheticDataset:
                 with torch.no_grad():
                     if self.model is None:
                         input_embed = self.input_embed_model(input)
+                        if seed is not None:
+                            torch.manual_seed(seed + np.random.RandomState(int(i*100)).randint(1000000000))
                         label = self.task_embed_model(input_embed, w) \
                             + torch.randn(input_embed.size(0), 1).cuda() * noise_var
+                        
                     else:
                         label = self.model(input, w) \
                             + torch.randn(input.size(0), 1).cuda() * noise_var
                     labels[counter: (counter + len(label))] = label.data.cpu().numpy()
                 counter += len(label)
+                # print(label) #debug
 
             # Store the generated data if the corresponding task does not exist.
             # Otherwise concatenate the new data to the existing data.
@@ -155,8 +160,23 @@ class SyntheticDataset:
             # Also update the sampled tasks dictionary to store all the sampled tasks with name and parameter.
             if "test" in task_name:
                 self.sampled_test_tasks.update({task_name: w})
+            elif "val" in task_name:
+                self.sampled_val_tasks.update({task_name: w})
             else:
                 self.sampled_train_tasks.update({task_name: w})
+
+    def generate_val_data(self, budget = 200):
+        """
+        Generate a few shot validation data.
+        """
+        task_name_list = self.sampled_train_tasks.keys()
+        val_task_dict = {}
+        for task_name in task_name_list:
+            if task_name+"_val" not in self.sampled_val_tasks:
+                val_task_dict[task_name+"_val"] = (self.sampled_train_tasks[task_name], budget)
+        self.generate_synthetic_data(val_task_dict, noise_var=0.0)
+
+
 
     def get_dataset(self, task_name_list, mixed):
         """
@@ -166,20 +186,22 @@ class SyntheticDataset:
         :return: dataset for the tasks.
         """
 
+        task_dim = self.task_embed_model.get_output_dim() if self.model is None else self.model.get_output_dim()
         if mixed:
             total_input_indices = []
             total_labels = []
             for task_name in task_name_list:
                 total_input_indices.extend(self.input_ind_sets[task_name])
                 total_labels.extend(self.label_sets[task_name])
-            task_dim = self.task_embed_model.get_output_dim() if self.model is None else self.model.get_output_dim()
             total_ws = np.empty((len(total_labels), task_dim))
             counter = 0
             for task_name in task_name_list:
-                try:
-                    total_ws[counter: (counter + len(self.label_sets[task_name])),:] = self.sampled_train_tasks[task_name].T  
-                except:
+                if "test" in task_name:
                     total_ws[counter: (counter + len(self.label_sets[task_name])),:] = self.sampled_test_tasks[task_name].T
+                elif "val" in task_name:
+                    total_ws[counter: (counter + len(self.label_sets[task_name])),:] = self.sampled_val_tasks[task_name].T
+                else:
+                    total_ws[counter: (counter + len(self.label_sets[task_name])),:] = self.sampled_train_tasks[task_name].T
                 counter += len(self.label_sets[task_name])
             output = DatasetOnMemory(self.input_dataset_pool[total_input_indices], total_labels, total_ws)
         else:
@@ -187,7 +209,14 @@ class SyntheticDataset:
             for task_name in task_name_list:
                 assert (task_name in self.input_ind_sets) and (task_name in self.label_sets), \
                     "Dataset for task {} does not exist. Please generate first".format(task_name)
-                output[task_name] = DatasetOnMemory(self.input_dataset_pool[self.input_ind_sets[task_name]], self.label_sets[task_name])
+                total_ws = np.empty((len(self.label_sets[task_name]), task_dim))
+                if "test" in task_name:
+                    total_ws[:,:] = self.sampled_test_tasks[task_name].T
+                elif "val" in task_name:
+                    total_ws[:,:] = self.sampled_val_tasks[task_name].T
+                else:
+                    total_ws[:,:] = self.sampled_train_tasks[task_name].T 
+                output[task_name] = DatasetOnMemory(self.input_dataset_pool[self.input_ind_sets[task_name]], self.label_sets[task_name], total_ws)
         return output
     
     def delete_dataset(self, task_name):
@@ -217,5 +246,12 @@ class SyntheticDataset:
         :return: tasks.
         """
         return self.sampled_test_tasks
+    
+    def get_sampled_val_tasks(self):
+        """
+        Get the sampled validation tasks.
+        :return: tasks.
+        """
+        return self.sampled_val_tasks
     
 

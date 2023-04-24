@@ -1,0 +1,13 @@
+{
+    "task_embed_matrix_seed": 12434,
+    "embed_dim": 4,
+    "task_embed_ratio": 20,
+    "input_dim": 200,
+    "num_target_sample": 8000,
+    "active": true,
+    "target_aware": true,
+    "saving_task_num": false,
+    "exp_base": 1.1,
+    "outer_epoch_num": 5,
+    "base_len_ratio": 0.5
+  }

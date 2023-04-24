@@ -13,6 +13,7 @@ class ModifiedLinear(nn.Module):
         self.model = model
         self.num_output = num_output
         self.num_input = num_input
+        self.embed_dim = num_input
 
     # TODO
     def forward(self, features, w=None, freeze=False):
@@ -49,4 +50,7 @@ class ModifiedLinear(nn.Module):
     
     def get_output_dim(self):
         return self.num_output
+    
+    def get_embed_dim(self):
+        return self.embed_dim
     

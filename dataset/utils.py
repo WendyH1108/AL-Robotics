@@ -91,8 +91,10 @@ def load_and_process_data(dataset_folder, features):
     print("Data has shape: ", feature_data.shape)
     return feature_data
 
-def generate_orth(shape):
+def generate_orth(shape, seed=None):
     assert len(shape) == 2, "Shape must be a 2-tuple."
+    if seed is not None:
+        np.random.seed(seed)
     gaus = np.random.normal(0, 1, shape)
     if shape[0] < shape[1]:
         _, _, orth = np.linalg.svd(gaus, full_matrices=False)

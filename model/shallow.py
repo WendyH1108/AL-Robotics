@@ -6,16 +6,17 @@ from torchvision.ops import MLP
 class ModifiedShallow(nn.Module):
     #TODO: check bias
 
-    def __init__(self, num_input, num_output, hidden_layers, ret_emb):
+    def __init__(self, num_input, num_output, hidden_layers, ret_emb, dropout=0.0):
         super(ModifiedShallow, self).__init__()
-        self.shallow_model = MLP(in_channels=num_input, hidden_channels=hidden_layers, norm_layer=None, dropout=0.0)
-        self.linear = nn.Linear(hidden_layers[-1], num_output)
+        self.shallow_model = MLP(in_channels=num_input, hidden_channels=hidden_layers, norm_layer=None, dropout=dropout, bias = False)
+        self.linear = nn.Linear(hidden_layers[-1], num_output, bias = False)
         self.num_output = num_output
         self.num_input = num_input
+        self.embed_dim = hidden_layers[-1]
         self.ret_emb = ret_emb
 
-    def forward(self, features, w=None, ret_feat_and_label=False, freeze=False):
-        if freeze:
+    def forward(self, features, w=None, ret_feat_and_label=False, freeze_rep=False, freeze_head=False):
+        if freeze_rep:
             with torch.no_grad():
                 features = self.shallow_model(features)
         else:
@@ -27,10 +28,17 @@ class ModifiedShallow(nn.Module):
         assert w is not None and len(w.shape) == 2, "w should be a 2-d matrix."
         assert w.shape[0] == self.num_output, "w should be of shape (num_output, ...)."
         assert w.shape[1] == 1 or w.shape[1] == len(features), "w should be of shape (..., num_input) or (..., 1)"
-        if w.shape[1] == 1:
-            labels = self.linear2(features) @ torch.Tensor(w).cuda()
+        if freeze_head:
+            with torch.no_grad():
+                if w.shape[1] == 1:
+                    labels = self.linear(features) @ torch.Tensor(w).cuda()
+                else:
+                    labels = torch.diag(self.linear(features) @ torch.Tensor(w).cuda())
         else:
-            labels = torch.diag(self.linear2(features) @ torch.Tensor(w).cuda())
+            if w.shape[1] == 1:
+                labels = self.linear(features) @ torch.Tensor(w).cuda()
+            else:
+                labels = torch.diag(self.linear(features) @ torch.Tensor(w).cuda())
         if ret_feat_and_label:
             return labels, features.data
         else:
@@ -51,8 +59,19 @@ class ModifiedShallow(nn.Module):
     def get_input_dim(self):
         return self.num_input
     
+    def get_embed_dim(self):
+        return self.embed_dim
+    
     def get_output_dim(self):
         return self.num_output
+    
+    def update_input_embedding(self, input_embed_matrix):
+        raise NotImplementedError("Not implemented yet.")
+
+    def update_task_embedding(self, task_embed_matrix):
+        self.linear.weight = nn.Parameter(torch.Tensor(task_embed_matrix).mT)
+        self.linear.bias = nn.Parameter(torch.zeros(self.num_output))
+
     
 
     

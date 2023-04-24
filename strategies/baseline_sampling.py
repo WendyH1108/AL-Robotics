@@ -8,18 +8,18 @@ class RandomSampling(Strategy):
     def __init__(self, target_task_dict, fixed_inner_epoch_num):
          super(RandomSampling, self).__init__(target_task_dict, fixed_inner_epoch_num)
 
-    def select(self, task_embed_model, budget, outer_epoch, inner_epoch, seed=None):
+    def select(self, model, budget, outer_epoch, inner_epoch, seed=None):
         """Select a subset of the task to collect the data.
 
         Args:
-            task_embed_model (nn.Module): the task embedding model
+            model (nn.Module): the task embedding model
             budget (int): the number of samples to label)
 
         Returns:
             np.array: the indices of the selected samples
         """
         if seed is not None: np.random.seed(seed)
-        task_dim = task_embed_model.get_output_dim()
+        task_dim = model.get_output_dim()
         # The (task_dim - 1, task_dim) orthonormal basis of the source task space
         orth = np.zeros((task_dim - 1, task_dim))
         gaus = np.random.normal(0, 1, (task_dim-1, task_dim-1))
@@ -34,5 +34,31 @@ class RandomSampling(Strategy):
         #    print(f"v: {v}")
         #    print(f"{v.T @ v}")
 
+        return task_dict, inner_epoch == self.inner_epoch_num - 1 if self.inner_epoch_num is not None else True
+    
+
+class FixBaseSampling(Strategy):
+    strategy_name = "fix_base"
+
+    def __init__(self, target_task_dict, fixed_inner_epoch_num):
+         super(FixBaseSampling, self).__init__(target_task_dict, fixed_inner_epoch_num)
+
+    def select(self, model, budget, outer_epoch, inner_epoch, seed=None):
+        """Select a subset of the task to collect the data.
+
+        Args:
+            model (nn.Module): the task embedding model
+            budget (int): the number of samples to label)
+
+        Returns:
+            np.array: the indices of the selected samples
+        """
+    
+        task_dim = model.get_output_dim()
+        basis = np.eye(task_dim)
+        basis[-1][-1] = 0
+        task_dict = {}
+        for i in range(task_dim - 1):
+            task_dict[f"rough_explore_{i}"] = (basis[:, [i]], int(budget//(task_dim - 1)))
         return task_dict, inner_epoch == self.inner_epoch_num - 1 if self.inner_epoch_num is not None else True
         
