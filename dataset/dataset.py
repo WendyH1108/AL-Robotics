@@ -104,7 +104,7 @@ class SyntheticDataset:
         selected_idx = np.random.choice(len(self.input_dataset_pool), n)
         return selected_idx, self.input_dataset_pool[selected_idx]
 
-    def generate_synthetic_data(self, task_dict, noise_var=None, seed=None):
+    def generate_synthetic_data(self, task_dict, noise_var=None, seed = None,device = "cpu"):
         """
         Generate synthetic data and stores into datasets.
         :param task_dict: dictionary of task name and the corresponding (w, n). 
@@ -118,28 +118,39 @@ class SyntheticDataset:
             input_indices, inputs = self.__generate_random_inputs(task_dict[task_name][1], seed=seed)
             w = task_dict[task_name][0]
             if self.model is None:
-                self.input_embed_model.cuda()
-                self.task_embed_model.cuda()
+                if device == "cuda":
+                    self.input_embed_model.cuda()
+                    self.task_embed_model.cuda()
                 self.input_embed_model.eval()
                 self.task_embed_model.eval()
             else:
-                self.model.cuda()
+                if device == "cuda":
+                    self.model.cuda()
                 self.model.eval()
             labels = np.zeros((len(inputs), 1))
             counter = 0
             for i in range(0, len(inputs), self.batch_size):
-                input = inputs[i: min(i+self.batch_size, len(inputs))].cuda()
+                if device == "cuda":
+                    input = inputs[i: min(i+self.batch_size, len(inputs))].cuda()
+                else:
+                    input = inputs[i: min(i+self.batch_size, len(inputs))]
                 with torch.no_grad():
                     if self.model is None:
-                        input_embed = self.input_embed_model(input)
-                        if seed is not None:
-                            torch.manual_seed(seed + np.random.RandomState(int(i*100)).randint(1000000000))
-                        label = self.task_embed_model(input_embed, w) \
-                            + torch.randn(input_embed.size(0), 1).cuda() * noise_var
-                        
+                        if device == "cuda":
+                            input_embed = self.input_embed_model(input)
+                            label = self.task_embed_model(input_embed, w) \
+                                + torch.randn(input_embed.size(0), 1).cuda() * noise_var
+                        else:
+                            input_embed = self.input_embed_model(input)
+                            label = self.task_embed_model(input_embed, w) \
+                                + torch.randn(input_embed.size(0), 1) * noise_var
                     else:
-                        label = self.model(input, w) \
-                            + torch.randn(input.size(0), 1).cuda() * noise_var
+                        if device == "cuda":
+                            label = self.model(input, w) \
+                                + torch.randn(input.size(0), 1).cuda() * noise_var
+                        else:
+                            label = self.model(input, w) \
+                                + torch.randn(input.size(0), 1) * noise_var
                     labels[counter: (counter + len(label))] = label.data.cpu().numpy()
                 counter += len(label)
                 # print(label) #debug
@@ -247,11 +258,111 @@ class SyntheticDataset:
         """
         return self.sampled_test_tasks
     
-    def get_sampled_val_tasks(self):
+class SimuDataset:
+    """
+    Dataset for active learning. The dataset contains all of training, validation and testing data as well as their
+    embeddings. The dataset also tracks the examples that have been labeled.
+    """
+
+    def __init__(self, input_data, input_label, input_ws):
+
+        self.input_data = self.__preprocess(input_data)
+        self.input_label = input_label
+        self.input_ws = input_ws
+        self.sampled_train_tasks = {} 
+        self.sampled_test_tasks = {}
+        self.label_sets = {}
+        self.batch_size = 100
+        self.num_workers = 4
+
+    def __preprocess(self, dataset):
         """
-        Get the sampled validation tasks.
+        Preprocess the dataset.
+        :param dataset: dataset to be preprocessed.
+        :return: preprocessed dataset.
+        """
+        for task in dataset.keys():
+            dataset_mean = np.mean(dataset[task], axis=0)
+            dataset_std = np.std(dataset[task], axis=0)
+            dataset[task] = torch.Tensor(dataset[task] - dataset_mean)/dataset_std
+        return dataset
+
+    def generate_random_inputs(self, total_len, n, seed=None):
+        """
+        Generate random inputs.
+        :param n: number of inputs to generate.
+        :return: generated inputs.
+        """
+        if seed is not None:
+            np.random.seed(seed)
+        selected_idx = np.random.choice(total_len, n)
+        return selected_idx
+
+
+    def get_dataset(self, task_dict, mixed):
+        """
+        Get dataset for the task.
+        :param str task_name: name of the task
+        :param bool mixed: whether to mix the data from different tasks.
+        :return: dataset for the tasks.
+        """
+        task_name_list = task_dict.keys()
+        if mixed:
+            input_data = []
+            input_label = []
+            input_ws = []
+            for task_name in task_name_list:
+                w = task_dict[task_name][0]
+                if "test" in task_name:
+                    self.sampled_test_tasks.update({task_name: w})
+                else:
+                    self.sampled_train_tasks.update({task_name: w})
+                n = task_dict[task_name][1]
+                idx = self.generate_random_inputs(self.input_data[task_name].shape[0], n)
+                input_data += self.input_data[task_name][idx]
+                input_label += [self.input_label[task_name][idx]]
+                input_ws += torch.tensor(self.input_ws[task_name])[idx]
+            output = DatasetOnMemory(input_data, np.array(input_label).flatten(), input_ws)
+        else:
+            output = {}
+            for task_name in task_name_list:
+                w = task_dict[task_name][0]
+                if "test" in task_name:
+                    self.sampled_test_tasks.update({task_name: w})
+                else:
+                    self.sampled_train_tasks.update({task_name: w})
+                n = task_dict[task_name][1]
+                idx = self.generate_random_inputs(self.input_data[task_name].shape[0], n)
+                output[task_name] = DatasetOnMemory(self.input_data[task_name][idx], 
+                                                    self.input_label[task_name][idx], 
+                                                    self.input_ws[task_name][idx])
+
+        return output
+    
+    def delete_dataset(self, task_name):
+        """
+        Delete dataset for the task.
+        :param task_name: name of the task.
+        """
+        if task_name in self.input_ind_sets:
+            del self.input_ind_sets[task_name]
+        if task_name in self.label_sets:
+            del self.label_sets[task_name]
+        if task_name in self.sampled_test_tasks:
+            del self.sampled_test_tasks[task_name]
+        if task_name in self.sampled_train_tasks:
+            del self.sampled_train_tasks[task_name]
+
+    def get_sampled_train_tasks(self):
+        """
+        Get the sampled train tasks.
         :return: tasks.
         """
-        return self.sampled_val_tasks
+        return self.sampled_train_tasks
     
-
+    def get_sampled_test_tasks(self):
+        """
+        Get the sampled test tasks.
+        :return: tasks.
+        """
+        return self.sampled_test_tasks

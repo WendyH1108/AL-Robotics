@@ -6,7 +6,7 @@ from torchvision.ops import MLP
 class ModifiedShallow(nn.Module):
     #TODO: check bias
 
-    def __init__(self, num_input, num_output, hidden_layers, ret_emb, dropout=0.0):
+    def __init__(self, num_input, num_output, hidden_layers, ret_emb, seed = 0 ,dropout=0.0):
         super(ModifiedShallow, self).__init__()
         self.shallow_model = MLP(in_channels=num_input, hidden_channels=hidden_layers, norm_layer=None, dropout=dropout, bias = False)
         self.linear = nn.Linear(hidden_layers[-1], num_output, bias = False)
@@ -15,7 +15,7 @@ class ModifiedShallow(nn.Module):
         self.embed_dim = hidden_layers[-1]
         self.ret_emb = ret_emb
 
-    def forward(self, features, w=None, ret_feat_and_label=False, freeze_rep=False, freeze_head=False):
+    def forward(self, features, w=None, ret_feat_and_label=False, freeze_rep=False, freeze_head=False, device = "cpu"):
         if freeze_rep:
             with torch.no_grad():
                 features = self.shallow_model(features)
@@ -31,14 +31,26 @@ class ModifiedShallow(nn.Module):
         if freeze_head:
             with torch.no_grad():
                 if w.shape[1] == 1:
-                    labels = self.linear(features) @ torch.Tensor(w).cuda()
+                    if device == "cuda":
+                        labels = self.linear2(features) @ torch.Tensor(w).cuda()
+                    else:
+                        labels = self.linear2(features) @ torch.Tensor(w)
                 else:
-                    labels = torch.diag(self.linear(features) @ torch.Tensor(w).cuda())
+                    if device == "cuda":
+                        labels = torch.diag(self.linear2(features) @ torch.Tensor(w).cuda())
+                    else:
+                        labels = torch.diag(self.linear2(features) @ torch.Tensor(w))
         else:
             if w.shape[1] == 1:
-                labels = self.linear(features) @ torch.Tensor(w).cuda()
+                if device == "cuda":
+                    labels = self.linear(features) @ torch.Tensor(w).cuda()
+                else:
+                    labels = self.linear(features) @ torch.Tensor(w)
             else:
-                labels = torch.diag(self.linear(features) @ torch.Tensor(w).cuda())
+                if device == "cuda":
+                    labels = torch.diag(self.linear(features) @ torch.Tensor(w).cuda())
+                else:
+                    labels = torch.diag(self.linear(features) @ torch.Tensor(w))
         if ret_feat_and_label:
             return labels, features.data
         else:

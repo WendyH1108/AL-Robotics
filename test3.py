@@ -1,6 +1,5 @@
 import numpy as np
 from torch.nn import functional as F
-from dataset.utils import load_and_process_data, generate_orth
 from dataset.dataset import SyntheticDataset
 from model.linear import ModifiedLinear
 from model.shallow import ModifiedShallow
@@ -33,9 +32,6 @@ if __name__ == "__main__":
     task_dim = embed_dim*config["task_embed_ratio"] # dim(w
     seed = config["task_embed_matrix_seed"] #42, 500, 124321
 
-    # Generate the input embedding matrix B_X as an orthogonal matrix. input_embed_matrix = B_X
-    hidden_layers = [input_dim, input_dim, embed_dim]
-    input_embed_matrix = generate_orth((input_dim, embed_dim), seed=seed)
 
     # Generate the task embedding matrix B_W
     # Make sure it is full rank and it embalanced
@@ -55,8 +51,8 @@ if __name__ == "__main__":
     print(f"condi of task_embed_matrix: {condi}")
 
     # Build the pytorch model base on the input_embed_model and the task_embed_model.
-    synthData_model = ModifiedBiLinear(input_dim, task_dim, embed_dim, ret_emb = False)
-    synthData_model.update_input_embedding(input_embed_matrix)
+    hidden_layers = [input_dim, embed_dim]
+    synthData_model = ModifiedShallow(input_dim, task_dim, hidden_layers, ret_emb = False, seed = seed)
     synthData_model.update_task_embedding(task_embed_matrix)
 
     #### Generate the synthetic target dataset
@@ -81,12 +77,18 @@ if __name__ == "__main__":
     # print(f"The ground truth most related source task is {true_v} with norm {v_norm}.")
 
     # Multi-task learning
-    trainer_config = {"trainer_name":"pytorch_passive", "max_epoch": 20*embed_dim, "train_batch_size": 600, "lr": 0.1, "num_workers": 4,\
-                    "optim_name": "Adam", "wd":0.01, "scheduler_name": "StepLR", "step_size": 50*embed_dim, "gamma": 0.9,
-                    "test_batch_size": 1000}
+    trainer_config = {"trainer_name":"pytorch_passive", "max_epoch": 10*embed_dim, "train_batch_size": 500, "lr": 0.1, "num_workers": 4,\
+                  "optim_name": "SGD", "scheduler_name": "StepLR", "step_size": 20*embed_dim, "gamma": 0.9,
+                  "test_batch_size": 1000}
+    # trainer_config = {"trainer_name":"pytorch_passive", "max_epoch": 5*embed_dim, "train_batch_size": 600, "lr": 1e-2, "num_workers": 6,\
+    #                 "optim_name": "Adam", "wd":1e-4, "scheduler_name": "StepLR", "step_size": 50*embed_dim, "gamma": 0.9,
+    #                 "test_batch_size": 1000}
+    # trainer_config = {"trainer_name":"pytorch_passive", "max_epoch": 5*embed_dim, "train_batch_size": 600, "lr": 1e-2, "num_workers": 6,\
+    #             "optim_name": "AdamW", "wd":1e-1, "scheduler_name": "StepLR", "step_size": 50*embed_dim, "gamma": 0.9,
+    #             "test_batch_size": 1000}
     trainer_config = get_optimizer_fn(trainer_config)
     trainer_config = get_scheduler_fn(trainer_config)
-    train_model = ModifiedBiLinear(input_dim, task_dim, embed_dim, ret_emb = False)
+    train_model = ModifiedShallow(input_dim, task_dim, [input_dim, input_dim, embed_dim], ret_emb = False, seed=seed+167864)
 
 
     if config["active"]:
@@ -103,24 +105,24 @@ if __name__ == "__main__":
 
     exp_base = 1.2 if "exp_base" not in config else config["exp_base"]
 
-    outer_epoch_num = 7 if "outer_epoch_num" not in config else config["outer_epoch_num"]
+    outer_epoch_num = 4 if "outer_epoch_num" not in config else config["outer_epoch_num"]
     base_len_ratio = 1 if "base_len_ratio" not in config else config["base_len_ratio"]
+    # trainer = PyTorchPassiveTrainer(trainer_config, train_model) #debug
     # Right now it is still exponential increase, but we can change it to linear increase.
     # Change to linear increase requires more careful design of the budget allocation. Pending.
     # Or change it to a fixed budget for each outer epoch. Pending.
     culmulative_budgets = []
     losses = []
     related_source_est_similarities = [0]
-    input_embed_space_est_similarities = []
     task_embed_space_est_similarities_upper = []
     task_embed_space_est_similarities_lower = []
     for outer_epoch in range(outer_epoch_num):
         print("Outer epoch: ", outer_epoch)
         if outer_epoch == 0:
-            budget = input_dim * embed_dim**2 * condi * base_len_ratio
+            budget = input_dim**2 * embed_dim**2 * condi * base_len_ratio #input_dim&**2 count for hidden layer
             print(f"budget: {budget}")
         else:
-            budget = input_dim * embed_dim**2 * condi * base_len_ratio * (exp_base**outer_epoch)
+            budget = input_dim**2 * embed_dim**2 * condi * base_len_ratio * (exp_base**outer_epoch)
         end_of_epoch = False
         inner_epoch = 0
         trainer = PyTorchPassiveTrainer(trainer_config, train_model)
@@ -140,15 +142,12 @@ if __name__ == "__main__":
             culmulative_budgets.append(budget)
 
         # Current estimation
-        est_input_embed_matrix = train_model.get_input_embed_matrix()
-        est_input_embed_matrix, s, vh = np.linalg.svd(est_input_embed_matrix, full_matrices=False)
-        print("Input embed similarity btw est and ground truth:", rowspace_dist(est_input_embed_matrix.T, input_embed_matrix.T))
-        input_embed_space_est_similarities.append(rowspace_dist(est_input_embed_matrix.T, input_embed_matrix.T)[1])
         est_task_restrict_embed_matrix = train_model.get_restricted_task_embed_matrix()
         # est_task_restrict_embed_matrix = np.diag(s) @ vh @ est_task_restrict_embed_matrix
         task_embed_restrict_matrix = synthData_model.get_restricted_task_embed_matrix()
         dist_to_upper_bound, dist_to_lower_bound = rowspace_dist2(est_task_restrict_embed_matrix, task_embed_restrict_matrix)
         print(f"Task embed dist compared to desired upper bound is {dist_to_upper_bound} and to lower bound is {dist_to_lower_bound}")
+        print(f"Another task embed dis estimation {rowspace_dist(est_task_restrict_embed_matrix, task_embed_restrict_matrix)}")
         task_embed_space_est_similarities_upper.append(dist_to_upper_bound)
         task_embed_space_est_similarities_lower.append(dist_to_lower_bound)
         
@@ -163,19 +162,16 @@ if __name__ == "__main__":
     print(culmulative_budgets)
     print(losses)
     print(related_source_est_similarities)
-    print(input_embed_space_est_similarities)
     print(task_embed_space_est_similarities_upper)
     print(task_embed_space_est_similarities_lower)
 
 
     try:
         results = pd.DataFrame({"budget": culmulative_budgets, "loss": losses, "related_source_est_similarities": related_source_est_similarities, \
-                                "input_embed_space_est_similarities": input_embed_space_est_similarities, \
                                 "task_embed_space_est_similarities_upper": task_embed_space_est_similarities_upper, \
                                 "task_embed_space_est_similarities_lower": task_embed_space_est_similarities_lower})
     except:
         results = pd.DataFrame({"budget": culmulative_budgets, "loss": losses, \
-                                "input_embed_space_est_similarities": input_embed_space_est_similarities, \
                                 "task_embed_space_est_similarities_upper": task_embed_space_est_similarities_upper, \
                                 "task_embed_space_est_similarities_lower": task_embed_space_est_similarities_lower})     
          
@@ -186,7 +182,7 @@ if __name__ == "__main__":
         results_name += "_target_aware" if config["target_aware"] else "_target_agnostic"
     results_name += f"_target_sample_num{config['num_target_sample']}"
     results_name += f"_seed{config['task_embed_matrix_seed']}"
-    results.to_csv(f"results/{results_name}.csv", index=False)
+    results.to_csv(f"results2/{results_name}.csv", index=False)
 
     fig, axes = plt.subplots(2,2, figsize=(25,25))
     axes[0,0].set_title('Test loss for target')
@@ -197,11 +193,14 @@ if __name__ == "__main__":
     except:
         pass
     axes[1,0].set_title('Input embed space similarity')
-    sns.lineplot(x="budget", y="input_embed_space_est_similarities", data=results, ax = axes[1,0])
     axes[1,1].set_title('Task embed space similarity')
     sns.lineplot(x="budget", y="task_embed_space_est_similarities_lower", data=results, ax = axes[1,1])
-    fig.savefig(f"results/{results_name}.pdf")
+    fig.savefig(f"results2/{results_name}.pdf")
     
 
 
 
+
+    
+
+    

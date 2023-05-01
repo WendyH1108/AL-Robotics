@@ -86,10 +86,10 @@ def load_and_process_data(dataset_folder, features):
     :param list features: the list of features to extract
     :return: the extracted features formated in a numpy array (n_samples, n_features)
     '''
-    rawdata = load_data(dataset_folder)[0]
+    rawdata = load_data(dataset_folder)
     feature_data = extract_features(rawdata, features)
     print("Data has shape: ", feature_data.shape)
-    return feature_data
+    return rawdata, feature_data
 
 def generate_orth(shape, seed=None):
     assert len(shape) == 2, "Shape must be a 2-tuple."
@@ -104,3 +104,7 @@ def generate_orth(shape, seed=None):
         print(f"{orth[:,[0]].T@orth[:,[1]]}")
     print(f" orth shape: {orth.shape}")
     return orth
+
+# if __name__=="main":
+#     rawdata=load_data("./data/training")
+#     print(len(rawdata))

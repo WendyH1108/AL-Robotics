@@ -16,7 +16,7 @@ class ModifiedLinear(nn.Module):
         self.embed_dim = num_input
 
     # TODO
-    def forward(self, features, w=None, freeze=False):
+    def forward(self, features, w=None, freeze=False, device = "cpu"):
         assert not freeze, "Nothing to freeze."
         if w is None:
             assert self.num_input > self.num_output, "This is not a input embedding matrix."
@@ -26,9 +26,15 @@ class ModifiedLinear(nn.Module):
             assert w.shape[0] == self.num_output, "w should be of shape (num_output, ...)."
             assert w.shape[1] == 1 or w.shape[1] == len(features), "w should be of shape (..., num_input) or (..., 1)"
             if w.shape[1] == 1:
-                labels = self.model(features) @ torch.Tensor(w).cuda()
+                if device == "cuda":
+                    labels = self.model(features) @ torch.Tensor(w).cuda()
+                else:
+                    labels = self.model(features) @ torch.Tensor(w)
             else:
-                labels = torch.diag(self.model(features) @ torch.Tensor(w).cuda())
+                if device == "cuda":
+                    labels = torch.diag(self.model(features) @ torch.Tensor(w).cuda())
+                else:
+                    labels = torch.diag(self.model(features) @ torch.Tensor(w))
         return labels
     
     def get_full_task_embed_matrix(self):

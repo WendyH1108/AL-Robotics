@@ -13,7 +13,7 @@ class ModifiedBiLinear(nn.Module):
         self.embed_dim = embed_dim
         self.ret_emb = ret_emb
 
-    def forward(self, features, w=None, ret_feat_and_label=False, freeze_rep=False, freeze_head=False):
+    def forward(self, features, w=None, ret_feat_and_label=False, freeze_rep=False, freeze_head=False, device = "cup"):
         if freeze_rep:
             with torch.no_grad():
                 features = self.linear1(features)
@@ -30,14 +30,28 @@ class ModifiedBiLinear(nn.Module):
             # TODO:
             with torch.no_grad():
                 if w.shape[1] == 1:
-                    labels = self.linear2(features) @ torch.Tensor(w).cuda()
+                    if device == "cuda":
+                        labels = self.linear2(features) @ torch.Tensor(w).cuda()
+                    else:
+                        labels = self.linear2(features) @ torch.Tensor(w)
                 else:
-                    labels = torch.diag(self.linear2(features) @ torch.Tensor(w).cuda())
+                    if device == "cuda":
+                        labels = torch.diag(self.linear2(features) @ torch.Tensor(w).cuda())
+                    else:
+                        labels = torch.diag(self.linear2(features) @ torch.Tensor(w))
+                
         else:
             if w.shape[1] == 1:
-                labels = self.linear2(features) @ torch.Tensor(w).cuda()
+                if device == "cuda":
+                    labels = self.linear2(features) @ torch.Tensor(w).cuda()
+                else:
+                    labels = self.linear2(features) @ torch.Tensor(w)
             else:
-                labels = torch.diag(self.linear2(features) @ torch.Tensor(w).cuda())
+                if device == "cuda":
+                    labels = torch.diag(self.linear2(features) @ torch.Tensor(w).cuda())
+                else:
+                    labels = torch.diag(self.linear2(features) @ torch.Tensor(w))
+                    
         if ret_feat_and_label:
             return labels, features.data
         else:
