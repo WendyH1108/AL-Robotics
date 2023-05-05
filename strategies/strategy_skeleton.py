@@ -6,13 +6,15 @@ class Strategy:
     """
     Abstract class for active learning strategies.
     """
-    def __init__(self, target_task_dict, fixed_inner_epoch_num):
+    def __init__(self, target_task_dict, fixed_inner_epoch_num, task_dim=None):
         """
         :param Dict target_task_dict: a dictionary of target tasks.
         :param int fixed_inner_epoch_num: the number of inner epochs. default: None. If None, the end of the inner loop will depend on the strategy.
+        :param int task_dim: the dimension of the original task embedding. default: None. If None, it will be inferred from the model.
         """
         self.inner_epoch_num = fixed_inner_epoch_num
         self.target_task_dict = target_task_dict
+        self.task_dim = task_dim
 
     def __init_subclass__(cls, **kwargs):
         """

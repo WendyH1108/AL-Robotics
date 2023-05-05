@@ -1,4 +1,5 @@
 import numpy as np
+from dataset.utils import generate_pendulum_specified_kernel
 
 def rowspace_dist(est,target,metric='both'):
     """Compute the angle between two matrices.
@@ -29,3 +30,43 @@ def rowspace_dist2(est, target, tol_ratio = 3):
     upper =  np.linalg.eigvalsh(est_matrix - tol_ratio*target @ target.T).max()
     lower =  np.linalg.eigvalsh(est_matrix - 1/tol_ratio*target @ target.T).min()
     return upper, lower
+
+def most_related_source(model, target_vector, true_v, task_dim, domain='ball', task_aug_kernel=None):
+
+    est_input_embed_matrix = model.get_input_embed_matrix()
+    est_input_embed_matrix, s, vh = np.linalg.svd(est_input_embed_matrix, full_matrices=False)
+    embed_matrix = model.get_full_task_embed_matrix()
+    embed_restrict_matrix = model.get_restricted_task_embed_matrix()
+    embed_matrix = np.diag(s) @ vh @ embed_matrix
+    embed_restrict_matrix = np.diag(s) @ vh @ embed_restrict_matrix
+
+    if domain == 'pendulum':
+        assert task_aug_kernel is not None, "task_aug_kernel should be provided for pendulum domain"
+        sample_num = 10**task_dim
+
+        diff = 1
+        iter = 0
+        target_vector = task_aug_kernel(target_vector.T)
+        v = 0
+        while diff > 0.05 and iter < 6:
+            np.random.seed()
+            tmp = np.random.uniform(-1,1, (sample_num, task_dim ))*0.5**iter + v
+            tmp[:,-1] = 0
+            tmp_aug = task_aug_kernel(tmp)
+            best_ind = np.linalg.norm(embed_matrix @ tmp_aug.T - embed_restrict_matrix @ target_vector.T, axis=0).argmin()
+            v = tmp[best_ind]
+            diff = np.linalg.norm(embed_matrix @ tmp_aug[[best_ind]].T - embed_restrict_matrix @ target_vector.T, axis=0)
+            print(diff)
+            iter += 1
+        v_norm = np.linalg.norm(v)
+        est_v = v/v_norm
+        similarity = est_v.T @ true_v
+    else:
+        # TODO : might want to add r cond here when target is not single
+        # print("est B_W v_target", embed_matrix @ target_vector)
+        v = np.linalg.lstsq(embed_restrict_matrix, embed_matrix @ target_vector, rcond=None)[0]
+        v_norm = np.linalg.norm(v)
+        est_v = v/v_norm
+        similarity = est_v.T @ true_v
+
+    return similarity, est_v

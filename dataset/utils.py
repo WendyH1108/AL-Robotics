@@ -7,6 +7,8 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import re
+import itertools
+import torch
 
 folder = './data/experiment'
 filename_fields = ['vehicle', 'trajectory', 'method', 'condition']
@@ -104,3 +106,63 @@ def generate_orth(shape, seed=None):
         print(f"{orth[:,[0]].T@orth[:,[1]]}")
     print(f" orth shape: {orth.shape}")
     return orth
+
+# def fourier_kernel(x, aug_dim):
+#     '''
+#     :param x: (n_samples, n_features)
+#     :param aug_dim: the number of random fourier features to generate.
+#     '''
+#     assert len(x.shape) == 2, "x must be a 2D array."
+#     w = np.random.normal(size=(aug_dim, x.shape[1]))
+#     b = np.random.uniform(low=0, high=2*np.pi, size=(aug_dim,1))
+#     y = np.cos(w @ x.T + b).T
+#     return y
+
+def generate_fourier_kernel(input_dim, aug_dim, seed=None):
+    '''
+    :param input_dim: the dimension of the input data.
+    :param aug_dim: the number of random fourier features to generate.
+    :return: w, b, and the function that generates the random fourier features.
+    '''
+    if seed is not None: np.random.seed(seed)
+    w = np.random.normal(size=(aug_dim, input_dim))
+    if seed is not None: np.random.seed(seed)
+    b = np.random.uniform(low=0, high=2*np.pi, size=(aug_dim,1))
+    return w, b, lambda x: np.cos(w @ x.T + b).T
+
+# def generate_pendulum_specified_kernel():
+
+#     task_aug_dim = 8
+
+#     def pendulum_kernel(w):
+#         """Map the vector x to a nonlinear space."""
+#         assert len(w.shape) == 2, "w must be a 2D array."
+#         assert w.shape[1] == 6, "w must have 6 features."
+#         # original: Cx, Cy, g, alpha_1, alpha_2, 0 (or 1)
+#         # now: Cx, Cy, g, alpha_1, alpha_2, ||C_x, C_y||_2*C_x, ||C_x, C_y||_2*C_y, 0 (or 1)
+
+#         aug_w = np.empty((len(w), task_aug_dim))
+#         aug_w[:, :-3] = w[:, :-1]
+#         aug_w[:,-1] = w[:,-1]
+#         aug_w[:,-3] = np.linalg.norm(w[:,0:2], axis=1)*w[:,0]
+#         aug_w[:,-2] = np.linalg.norm(w[:,0:2], axis=1)*w[:,1]
+
+#         return aug_w
+    
+#     return task_aug_dim, pendulum_kernel
+
+def generate_pendulum_specified_kernel(input_dim, task_aug_dim, seed=None):
+    assert input_dim == 6, "Input_dim must be 6."
+
+    def pendulum_kernel(x):
+        #only C_x, C_y is nonlinear
+        _, _, fourier_kernel = generate_fourier_kernel(2, task_aug_dim - input_dim, seed=seed)
+        aug_x = np.empty((len(x), task_aug_dim))
+        aug_x[:,-1] = x[:,-1]
+        aug_x[:,0:input_dim-1] = x[:,:-1]
+        aug_x[:,input_dim-1:-1] = fourier_kernel(x[:,:2])
+        aug_x[:,:-1] = aug_x[:,:-1] * (x[:,[-1]] != 1)
+
+        return aug_x
+    
+    return task_aug_dim, pendulum_kernel

@@ -5,10 +5,10 @@ from strategies.strategy_skeleton import Strategy
 class RandomSampling(Strategy):
     strategy_name = "random"
 
-    def __init__(self, target_task_dict, fixed_inner_epoch_num):
-         super(RandomSampling, self).__init__(target_task_dict, fixed_inner_epoch_num)
+    def __init__(self, target_task_dict, fixed_inner_epoch_num, task_dim=None):
+         super(RandomSampling, self).__init__(target_task_dict, fixed_inner_epoch_num, task_dim)
 
-    def select(self, model, budget, outer_epoch, inner_epoch, seed=None):
+    def select(self, model, budget, outer_epoch, inner_epoch, seed=None, adjustable_budget_ratio=1.0):
         """Select a subset of the task to collect the data.
 
         Args:
@@ -19,7 +19,7 @@ class RandomSampling(Strategy):
             np.array: the indices of the selected samples
         """
         if seed is not None: np.random.seed(seed)
-        task_dim = model.get_output_dim()
+        task_dim = model.get_output_dim() if self.task_dim is None else self.task_dim
         # The (task_dim - 1, task_dim) orthonormal basis of the source task space
         orth = np.zeros((task_dim - 1, task_dim))
         gaus = np.random.normal(0, 1, (task_dim-1, task_dim-1))
@@ -40,10 +40,10 @@ class RandomSampling(Strategy):
 class FixBaseSampling(Strategy):
     strategy_name = "fix_base"
 
-    def __init__(self, target_task_dict, fixed_inner_epoch_num):
-         super(FixBaseSampling, self).__init__(target_task_dict, fixed_inner_epoch_num)
+    def __init__(self, target_task_dict, fixed_inner_epoch_num,task_dim=None):
+         super(FixBaseSampling, self).__init__(target_task_dict, fixed_inner_epoch_num, task_dim)
 
-    def select(self, model, budget, outer_epoch, inner_epoch, seed=None):
+    def select(self, model, budget, outer_epoch, inner_epoch, seed=None, adjustable_budget_ratio=1.0):
         """Select a subset of the task to collect the data.
 
         Args:
@@ -54,7 +54,7 @@ class FixBaseSampling(Strategy):
             np.array: the indices of the selected samples
         """
     
-        task_dim = model.get_output_dim()
+        task_dim = model.get_output_dim() if self.task_dim is None else self.task_dim
         basis = np.eye(task_dim)
         basis[-1][-1] = 0
         task_dict = {}

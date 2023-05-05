@@ -1,87 +1,24 @@
 import torch
-from enum import Enum
 from torch.utils.data import Dataset, DataLoader, TensorDataset, Subset
 import numpy as np
 import torch
-from tqdm import tqdm
 
-class LabelType(Enum):
-    """Formats of label."""
-    MULTI_CLASS = 1
-    MULTI_LABEL = 2
+from dataset.dataset_skeleton import MyDataset, DatasetOnMemory
 
+class SyntheticDataset(MyDataset):
 
-datasets = {}
+    dataset_name = "synthetic"
 
-
-def register_dataset(name: str, type: LabelType):
-    """
-    Register dataset with dataset name and label type.
-    :param str name: dataset name.
-    :param LabelType type: the type of label for the dataset.
-    :return: function decorator that registers the dataset.
-    """
-
-    def dataset_decor(get_fn):
-        datasets[name] = (type, get_fn)
-        return get_fn
-
-    return dataset_decor
-
-
-class DatasetOnMemory(Dataset):
-    """
-    A PyTorch dataset where all data lives on CPU memory.
-    """
-
-    def __init__(self, X, y, meta_data=None):
-        assert len(X) == len(y), "X and y must have the same length."
-        assert meta_data is None or len(X) == len(meta_data), "X and meta_data must have the same length."
-        self.X = X
-        self.y = y
-        self.meta_data = meta_data 
-
-    def __len__(self):
-        return len(self.y)
-
-    def __getitem__(self, item):
-        x = self.X[item]
-        y = self.y[item]
-        if self.meta_data is not None:
-            meta_data = self.meta_data[item]
-            return x, y, meta_data
-        else:
-            return x, y, None
-
-    def get_inputs(self):
-        return self.X
-
-    def get_labels(self):
-        return self.y
-
-
-#TODO: Here I consider all the inputs data are shared across all the tasks. Further modification is needed if we want to have different inputs domain for different tasks.
-class SyntheticDataset:
-    """
-    Dataset for active learning. The dataset contains all of training, validation and testing data as well as their
-    embeddings. The dataset also tracks the examples that have been labeled.
-    """
-
-    def __init__(self, input_dataset, input_embed_model, task_embed_model, model=None, noise_var = 0.0):
+    def __init__(self, input_dataset, input_embed_model, task_embed_model, model=None, noise_var = 0.0, batch_size= 100, num_workers=4):
+        super(SyntheticDataset, self).__init__(batch_size, num_workers)
 
         assert (input_embed_model is not None and task_embed_model is not None) or model is not None, \
             "Either input_embed_model and task_embed_model or the combined model must be provided."
         self.input_dataset_pool = torch.Tensor(self.__preprocess(input_dataset))
         self.input_embed_model = input_embed_model
         self.task_embed_model = task_embed_model
+        self.input_ind_sets = {} # If we already have a pool of input.
         self.model = model
-        self.sampled_train_tasks = {} 
-        self.sampled_val_tasks = {}
-        self.sampled_test_tasks = {}
-        self.input_ind_sets = {}
-        self.label_sets = {}
-        self.batch_size = 100
-        self.num_workers = 4
         self.default_noise_var = noise_var # Here we consider homogeneous noise for all the tasks.
 
     def __preprocess(self, dataset):
@@ -165,19 +102,6 @@ class SyntheticDataset:
             else:
                 self.sampled_train_tasks.update({task_name: w})
 
-    def generate_val_data(self, budget = 200):
-        """
-        Generate a few shot validation data.
-        """
-        task_name_list = self.sampled_train_tasks.keys()
-        val_task_dict = {}
-        for task_name in task_name_list:
-            if task_name+"_val" not in self.sampled_val_tasks:
-                val_task_dict[task_name+"_val"] = (self.sampled_train_tasks[task_name], budget)
-        self.generate_synthetic_data(val_task_dict, noise_var=0.0)
-
-
-
     def get_dataset(self, task_name_list, mixed):
         """
         Get dataset for the task.
@@ -218,40 +142,6 @@ class SyntheticDataset:
                     total_ws[:,:] = self.sampled_train_tasks[task_name].T 
                 output[task_name] = DatasetOnMemory(self.input_dataset_pool[self.input_ind_sets[task_name]], self.label_sets[task_name], total_ws)
         return output
-    
-    def delete_dataset(self, task_name):
-        """
-        Delete dataset for the task.
-        :param task_name: name of the task.
-        """
-        if task_name in self.input_ind_sets:
-            del self.input_ind_sets[task_name]
-        if task_name in self.label_sets:
-            del self.label_sets[task_name]
-        if task_name in self.sampled_test_tasks:
-            del self.sampled_test_tasks[task_name]
-        if task_name in self.sampled_train_tasks:
-            del self.sampled_train_tasks[task_name]
 
-    def get_sampled_train_tasks(self):
-        """
-        Get the sampled train tasks.
-        :return: tasks.
-        """
-        return self.sampled_train_tasks
-    
-    def get_sampled_test_tasks(self):
-        """
-        Get the sampled test tasks.
-        :return: tasks.
-        """
-        return self.sampled_test_tasks
-    
-    def get_sampled_val_tasks(self):
-        """
-        Get the sampled validation tasks.
-        :return: tasks.
-        """
-        return self.sampled_val_tasks
-    
+
 

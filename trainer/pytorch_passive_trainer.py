@@ -16,15 +16,17 @@ from trainer.trainer import *
 class PyTorchPassiveTrainer():
     trainer_name = "pytorch_passive"
 
-    def __init__(self, trainer_config, model):
+    def __init__(self, trainer_config, model, task_aug_kernel = None):
         super(PyTorchPassiveTrainer, self).__init__()
         self.trainer_config = trainer_config
         self.model = model
         assert isinstance(self.model, nn.Module), "Only support nn.Module for now."
+        self.task_aug_kernel = task_aug_kernel
 
-    def train(self, dataset, train_task_name_list, freeze_rep = False, need_print = False):
+    def train(self, dataset, train_task_name_list, freeze_rep = False, shuffle=True, need_print = False, seed = None):
         """
         Train on the given source tasks in task_name_list
+        :param shuffle: whether to shuffle the training data (if not, then solve task one by one)
         """
 
         # Get the training dataset based on the task_name_list.
@@ -41,19 +43,27 @@ class PyTorchPassiveTrainer():
         self.model.cuda()
         counter = 0
         for epoch in tqdm(range(max_epoch), desc="Training: "):
-            loader = DataLoader(train_dataset, batch_size=self.trainer_config["train_batch_size"], shuffle=True,
-                                num_workers=self.trainer_config["num_workers"],
-                                drop_last=(len(train_dataset) >= self.trainer_config["train_batch_size"]))
+
+            loader = DataLoader(train_dataset, batch_size=self.trainer_config["train_batch_size"], shuffle=shuffle,
+                                    num_workers=self.trainer_config["num_workers"],
+                                    drop_last=(len(train_dataset) >= self.trainer_config["train_batch_size"]))
 
             total_Loss = 0
             for input, label, w in loader:
-                input, label, w = input.float().cuda(), label.float().cuda(), w.float().cuda()
-                pred = self.model(input, w.mT, freeze = freeze_rep, ret_feat_and_label=False)
+                input, label = input.float().cuda(), label.float().cuda()
+                # print(w[0]) #debug
+                if self.task_aug_kernel is not None:
+                    w = torch.from_numpy(self.task_aug_kernel(w.numpy()))
+                w = w.float().cuda()
+                # print(w[0]) #debugs
+
+                pred = self.model(input, w.mT, freeze_rep = freeze_rep, ret_feat_and_label=False)
                 if scheduler is not None:
                     scheduler(counter)
                     counter += 1
                 optimizer.zero_grad()
-                loss = F.mse_loss(pred.float(), label.float())
+                loss = F.mse_loss(pred, label)
+                # print("label and loss",label, loss) #debug
                 total_Loss += loss.item()*len(input)
                 loss.backward()
                 if "clip_grad" in self.trainer_config:
@@ -63,26 +73,57 @@ class PyTorchPassiveTrainer():
                 print('Train Epoch: {} [total loss on on : {:.6f}] with lr {:.3f}'.format(epoch,  total_Loss/len(train_dataset), optimizer.param_groups[0]['lr'])) 
         print('Finish training after epoch: {} [total loss on : {:.6f}]'.format(epoch, total_Loss/len(train_dataset))) 
 
-    def test(self, dataset, test_task_name_list):
+    def test(self, dataset, test_task_name_list, output_type = "max"):
         """
         Train on the given source tasks in task_name_list
         """
         self.model.cuda()
-        # Get the training dataset based on the task_name_list.
-        test_dataset = dataset.get_dataset(test_task_name_list, mixed=True)
-
-        loader = DataLoader(test_dataset, batch_size=self.trainer_config["test_batch_size"], shuffle=False,
-                            num_workers=self.trainer_config["num_workers"])
         self.model.eval()
-        total_Loss = 0
-        for input, label, w in loader:
-            input, label, w = input.float().cuda(), label.float().cuda(), w.float().cuda()
-            with torch.no_grad():
-                pred = self.model(input, w.mT, ret_feat_and_label=False)
-                loss = F.mse_loss(pred.float(), label.float())
-                total_Loss += loss.item()*len(input)
-        print('[total test loss on {}: {:.6f}]'.format(test_task_name_list, total_Loss/len(test_dataset))) 
+
+        # Get the training dataset based on the task_name_list.
+
+        if output_type == "max":        
+            test_dataset = dataset.get_dataset(test_task_name_list, mixed=False)
+            max_loss = 0
+            max_loss_task = None
+            for task_name in test_task_name_list:
+                loader = DataLoader(test_dataset[task_name], batch_size=self.trainer_config["test_batch_size"], shuffle=False,
+                                    num_workers=self.trainer_config["num_workers"])
+                total_Loss = 0
+                for input, label, w in loader:
+                    input, label = input.float().cuda(), label.float().cuda()
+                    if self.task_aug_kernel is not None:
+                        w = torch.from_numpy(self.task_aug_kernel(w.numpy()))
+                    w = w.float().cuda()
+                    with torch.no_grad():
+                        pred = self.model(input, w.mT, ret_feat_and_label=False)
+                        loss = F.mse_loss(pred.float(), label.float(), reduction='sum')
+                        total_Loss += loss.item()
+                if max_loss < total_Loss/len(test_dataset[task_name]):
+                    max_loss = total_Loss/len(test_dataset[task_name])
+                    max_loss_task = task_name
+                # print('[total test loss on {}: {:.6f}]'.format(task_name, total_Loss/len(test_dataset[task_name]))) 
+            print('[Worst-case test loss on {}: {:.6f}]'.format(max_loss_task, total_Loss/len(test_dataset[max_loss_task]))) 
+        else:
+            test_dataset = dataset.get_dataset(test_task_name_list, mixed=True)
+            loader = DataLoader(test_dataset, batch_size=self.trainer_config["test_batch_size"], shuffle=False,
+                                            num_workers=self.trainer_config["num_workers"])
+            total_Loss = 0
+            print(f"Testing on {len(test_dataset)} samples.")
+            print(test_dataset)
+            for input, label, w in loader:
+                input, label = input.float().cuda(), label.float().cuda()
+                if self.task_aug_kernel is not None:
+                    w = torch.from_numpy(self.task_aug_kernel(w.numpy()))
+                w = w.float().cuda()
+                with torch.no_grad():
+                    pred = self.model(input, w.mT, ret_feat_and_label=False)
+                    loss = F.mse_loss(pred.float(), label.float(), reduction='sum')
+                    total_Loss += loss.item()
+            print('[total test loss : {:.6f}]'.format(total_Loss/len(test_dataset))) 
+
         self.model.train()
+        return total_Loss/len(test_dataset[max_loss_task]) if output_type == "max" else total_Loss/len(test_dataset)
 
     def update_config(self, trainer_config):
         self.trainer_config = trainer_config
