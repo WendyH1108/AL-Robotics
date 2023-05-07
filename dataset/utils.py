@@ -130,39 +130,66 @@ def generate_fourier_kernel(input_dim, aug_dim, seed=None):
     b = np.random.uniform(low=0, high=2*np.pi, size=(aug_dim,1))
     return w, b, lambda x: np.cos(w @ x.T + b).T
 
-# def generate_pendulum_specified_kernel():
+def generate_pendulum_specified_kernel(input_dim, aug_dim, seed=None):
 
-#     task_aug_dim = 8
+    assert input_dim == 6, "input_dim must be 6."
+    assert aug_dim == 13, "aug_dim must be 13."
 
-#     def pendulum_kernel(w):
-#         """Map the vector x to a nonlinear space."""
-#         assert len(w.shape) == 2, "w must be a 2D array."
-#         assert w.shape[1] == 6, "w must have 6 features."
-#         # original: Cx, Cy, g, alpha_1, alpha_2, 0 (or 1)
-#         # now: Cx, Cy, g, alpha_1, alpha_2, ||C_x, C_y||_2*C_x, ||C_x, C_y||_2*C_y, 0 (or 1)
+    # non_linear_dim = 2 if input_dim < aug_dim else 0
+    # linear_dim = input_dim - non_linear_dim -1
+    # n_basis = linear_dim + 5**non_linear_dim
+    
+    # basis= np.random.uniform(-1, 1, (n_basis, input_dim))
 
-#         aug_w = np.empty((len(w), task_aug_dim))
-#         aug_w[:, :-3] = w[:, :-1]
-#         aug_w[:,-1] = w[:,-1]
-#         aug_w[:,-3] = np.linalg.norm(w[:,0:2], axis=1)*w[:,0]
-#         aug_w[:,-2] = np.linalg.norm(w[:,0:2], axis=1)*w[:,1]
+    # aug_w = np.empty((len(basis), aug_dim))
+    # aug_w[:, 0:5] = basis[:, :-1]
+    # aug_w[:,-1] = basis[:,-1]
+    # aug_w[:,5] = basis[:,0]*basis[:,1] 
+    # aug_w[:,6] = basis[:,0]**2 
+    # aug_w[:,7] = basis[:,0]**2*basis[:,1] 
+    # aug_w[:,8] = basis[:,0]**3
+    # aug_w[:,9] = basis[:,1]**2 
+    # aug_w[:,10] = basis[:,1]**2*w[:,0] 
+    # aug_w[:,11] = basis[:,1]**3
+    
+    # tmp = aug_w[:,:-1]
+    # eigs = np.linalg.eigvals(tmp.T @ tmp)
 
-#         return aug_w
+    def pendulum_kernel(w):
+        """Map the vector x to a nonlinear space."""
+        assert len(w.shape) == 2, "w must be a 2D array."
+        assert w.shape[1] == 6, "w must have 6 features."
+        # original: Cx, Cy, g, alpha_1, alpha_2, 0 (or 1)
+        # now: Cx, Cy, g, alpha_1, alpha_2, CxCy, Cx^2, Cx^2C_y, C_x^3, Cy^2, Cy^2C_x, C_y^3, 0 (or 1)
+
+        aug_w = np.empty((len(w), aug_dim))
+        aug_w[:, 0:5] = w[:, :-1]
+        aug_w[:,-1] = w[:,-1]
+        aug_w[:,5] = w[:,0]*w[:,1] 
+        aug_w[:,6] = w[:,0]**2 
+        aug_w[:,7] = w[:,0]**2*w[:,1] 
+        aug_w[:,8] = w[:,0]**3
+        aug_w[:,9] = w[:,1]**2 
+        aug_w[:,10] = w[:,1]**2*w[:,0] 
+        aug_w[:,11] = w[:,1]**3
+        # print(aug_w) #debug
+
+        return aug_w
+    
+    return aug_dim, pendulum_kernel
+
+# def generate_pendulum_specified_kernel(input_dim, task_aug_dim, seed=None):
+#     assert input_dim == 6, "Input_dim must be 6."
+
+#     def pendulum_kernel(x):
+#         #only C_x, C_y is nonlinear
+#         _, _, fourier_kernel = generate_fourier_kernel(2, task_aug_dim - input_dim, seed=seed)
+#         aug_x = np.empty((len(x), task_aug_dim))
+#         aug_x[:,-1] = x[:,-1]
+#         aug_x[:,0:input_dim-1] = x[:,:-1]
+#         aug_x[:,input_dim-1:-1] = fourier_kernel(x[:,:2])
+#         aug_x[:,:-1] = aug_x[:,:-1] * (x[:,[-1]] != 1)
+
+#         return aug_x
     
 #     return task_aug_dim, pendulum_kernel
-
-def generate_pendulum_specified_kernel(input_dim, task_aug_dim, seed=None):
-    assert input_dim == 6, "Input_dim must be 6."
-
-    def pendulum_kernel(x):
-        #only C_x, C_y is nonlinear
-        _, _, fourier_kernel = generate_fourier_kernel(2, task_aug_dim - input_dim, seed=seed)
-        aug_x = np.empty((len(x), task_aug_dim))
-        aug_x[:,-1] = x[:,-1]
-        aug_x[:,0:input_dim-1] = x[:,:-1]
-        aug_x[:,input_dim-1:-1] = fourier_kernel(x[:,:2])
-        aug_x[:,:-1] = aug_x[:,:-1] * (x[:,[-1]] != 1)
-
-        return aug_x
-    
-    return task_aug_dim, pendulum_kernel

@@ -1,7 +1,7 @@
 import numpy as np
 from torch.nn import functional as F
 from dataset.utils import load_and_process_data, generate_orth
-from dataset.dataset import SyntheticDataset
+from dataset.synthetic_data import SyntheticDataset
 from model.linear import ModifiedLinear
 from model.shallow import ModifiedShallow
 from model.bilinear import ModifiedBiLinear
@@ -60,8 +60,6 @@ if __name__ == "__main__":
     synthData_model.update_task_embedding(task_embed_matrix)
 
     #### Generate the synthetic target dataset
-    # For each source task, we assume there exsits a few shot samples.
-    num_target = input_dim * embed_dim
     # Generate a signle target task that is perpendicular to the source tasks space.
     # Source tasks are in the first task_dim-1 dimensions, and the target task is in the last dimension.
     target_task_dict = {}

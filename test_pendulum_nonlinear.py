@@ -48,11 +48,16 @@ if __name__ == "__main__":
     tmp = np.expand_dims(tmp, axis = 1)
     target_task_dict.update({"target1_test": (tmp, 20000)})
     target_task_dict.update({"target1": (tmp, config["num_target_sample"])})
-    true_v = actual_target/np.linalg.norm(actual_target)
-    true_v = np.expand_dims(true_v, axis = 1)
-    print("True target task: ", true_v)
+    
     # Generate a fixed fourier kernel.
-    w, b, fourier_kernel = generate_fourier_kernel(input_dim, aug_dim, seed = data_seed)
+    w, b, fourier_kernel = generate_fourier_kernel(input_dim, aug_dim, seed = data_seed)    
+    # Generate the task_aug_kernel
+    task_aug_dim, task_aug_kernel = generate_pendulum_specified_kernel(task_dim, 13, seed = data_seed)
+    true_v = np.expand_dims(actual_target, axis = 0)
+    true_v = task_aug_kernel(true_v)
+    print(true_v)
+    true_v = true_v.T/np.linalg.norm(true_v)
+    print("True target task after aug: ", true_v)
     # Generate the synthetic data for target tasks
     dataset = PendulumSimulatorDataset(input_aug_kernel=fourier_kernel, actual_target=actual_target)
     dataset.generate_synthetic_data({'target1_test': target_task_dict['target1_test']}, seed = 43 + 2343, noise_var= 0)
@@ -64,11 +69,11 @@ if __name__ == "__main__":
     ## Set the trainer config
     def update_trainer_config(budget):
         if budget < 2e4:
-            trainer_config = {"trainer_name":"pytorch_passive", "max_epoch": 12*embed_dim, "train_batch_size": 512, "lr": 0.01, "num_workers": 10,\
+            trainer_config = {"trainer_name":"pytorch_passive", "max_epoch": 10*embed_dim, "train_batch_size": 512, "lr": 0.01, "num_workers": 10,\
                             "optim_name": "AdamW", "wd":0.05, "scheduler_name": "StepLR", "step_size": 500, "gamma": 0.9,
                             "test_batch_size": 1000}
         elif budget < 4e4:
-            trainer_config = {"trainer_name":"pytorch_passive", "max_epoch": 15*embed_dim, "train_batch_size": 512, "lr": 0.01, "num_workers": 10,\
+            trainer_config = {"trainer_name":"pytorch_passive", "max_epoch": 12*embed_dim, "train_batch_size": 512, "lr": 0.01, "num_workers": 10,\
                             "optim_name": "AdamW", "wd":0.05, "scheduler_name": "StepLR", "step_size": 900, "gamma": 0.9,
                             "test_batch_size": 1000}
         else:
@@ -78,30 +83,40 @@ if __name__ == "__main__":
         # trainer_config = {"trainer_name":"pytorch_passive", "max_epoch": 10*embed_dim, "train_batch_size": 512, "lr": 0.01, "num_workers": 10,\
         #                     "optim_name": "SGD", "scheduler_name": "StepLR", "step_size": 500, "gamma": 0.9,
         #                     "test_batch_size": 1000}
+        # trainer_config = {"trainer_name":"pytorch_passive", "max_epoch": 10, "train_batch_size": 512, "lr": 0.01, "num_workers": 10,\
+        #                 "optim_name": "SGD", "scheduler_name": "StepLR", "step_size": 500, "gamma": 0.9,
+        #                 "test_batch_size": 1000}
         trainer_config = get_optimizer_fn(trainer_config)
         trainer_config = get_scheduler_fn(trainer_config)
         return trainer_config
     
-    # Generate the task_aug_kernel
-    task_aug_dim, task_aug_kernel = generate_pendulum_specified_kernel(task_dim, (task_dim-1)*10, seed = data_seed)
 
-    # Generate the source tasks
+
+    # Generate the model
     train_model = ModifiedBiLinear_augmented(aug_dim, task_aug_dim, embed_dim, ret_emb = False)
     if config["active"]:
         stable_model = ModifiedBiLinear_augmented(aug_dim, task_aug_dim, embed_dim, ret_emb = False)
     else:
         stable_model = train_model
+
+    # Train the model using target only for testing
+    total_task_list = list(dataset.get_sampled_train_tasks().keys())
+    trainer = PyTorchPassiveTrainer(update_trainer_config(0), train_model, task_aug_kernel = task_aug_kernel)
+    trainer.train(dataset, total_task_list , freeze_rep = False, shuffle=True, need_print=False)
+    trainer.test(dataset, dataset.get_sampled_test_tasks().keys())
+
+    # Set the strategy
     if config["active"]:
         strategy_mode = "target_agnostic" if not config["target_aware"] else "target_awared"
         if config["saving_task_num"]:
-            strategy = MTALSampling_TaskSparse({'target1': target_task_dict['target1']}, fixed_inner_epoch_num=None, mode=strategy_mode, task_dim=task_dim, task_aug_kernel = task_aug_kernel)
+            strategy = MTALSampling_TaskSparse({'target1': target_task_dict['target1']}, fixed_inner_epoch_num=None, mode=strategy_mode, task_dim=task_dim, task_aug_dim = task_aug_dim, task_aug_kernel = task_aug_kernel)
         else:
-            strategy = MTALSampling({'target1': target_task_dict['target1']}, fixed_inner_epoch_num=None, mode=strategy_mode, task_dim=task_dim, task_aug_kernel = task_aug_kernel) 
+            strategy = MTALSampling({'target1': target_task_dict['target1']}, fixed_inner_epoch_num=None, mode=strategy_mode, task_dim=task_dim, task_aug_dim = task_aug_dim, task_aug_kernel = task_aug_kernel) 
     else:
         if config["saving_task_num"]:
-            strategy = FixBaseSampling({'target1': target_task_dict['target1']}, fixed_inner_epoch_num=1, task_dim=task_dim)
+            strategy = FixBaseSampling({'target1': target_task_dict['target1']}, fixed_inner_epoch_num=1, task_dim=task_dim, task_aug_dim = task_aug_dim,task_aug_kernel = task_aug_kernel)
         else:
-            strategy = RandomSampling({'target1': target_task_dict['target1']}, fixed_inner_epoch_num=1, task_dim=task_dim)
+            strategy = RandomSampling({'target1': target_task_dict['target1']}, fixed_inner_epoch_num=1, task_dim=task_dim, task_aug_dim = task_aug_dim,task_aug_kernel = task_aug_kernel)
 
     exp_base = 1.5 if "exp_base" not in config else config["exp_base"]
 
@@ -130,14 +145,14 @@ if __name__ == "__main__":
         while not end_of_epoch:
             cur_task_dict, end_of_epoch = strategy.select(stable_model, budget, outer_epoch, inner_epoch, adjustable_budget_ratio=1)
             # print("Current task dict: ", cur_task_dict) #debug
-            # cur_task_dict = {"source1": (np.array([0.0266657, -0.1159717, 0.526, 0.380503,  0.4326478, 0.348809, -0.2556309, -0.436159, 0.]), budget)} # debug
-            # cur_task_dict = {"source1": (np.array([ 0.0177939, 0.00169856, 0.57302446, 0.13202089, 0.49981853, 0.12407007, -0.34877699, -0.51675585, 0.  ]), budget)} # debug
+            # cur_task_dict = {"source1": (np.array([ 0.26983025, -0.15776465, -0.14325377, -0.83220568,  0.43498737,  0.  ]), budget)} # debug
+            # cur_task_dict = {"source1": (np.array([ 0, 0, 1, 0, 0,  0.  ]), budget)} # debug
             # cur_task_dict = {"source1": (true_v, budget)} # debug
             # cur_task_dict = {"source1": (actual_target, budget)} # debug
             # print("Current task dict: ", cur_task_dict) #debug
             dataset.generate_synthetic_data(cur_task_dict, seed = outer_epoch +  data_seed, noise_var=0.5) # noise_var=None
             total_task_list = list(dataset.get_sampled_train_tasks().keys())
-            # print(dataset.get_sampled_train_tasks()) #debug
+            # print(dataset.get_sampled_train_tasks())
             
             if config["active"]:
                 if outer_epoch == 0:
@@ -167,7 +182,11 @@ if __name__ == "__main__":
             cumulative_budgets.append(budget)            
             
         # Distance between the ground truth most related source task and the estimation most related source task
-        similarity, est_v = most_related_source(stable_model, target_task_dict["target1"][0] ,true_v, task_dim, domain='pendulum', task_aug_kernel = task_aug_kernel)
+        if config["active"] and outer_epoch > 0:
+            already_compute = cur_task_dict[f"exploit_epoch{outer_epoch}_{0}"][0]
+        else:
+            already_compute = None
+        similarity, est_v = most_related_source(stable_model, target_task_dict["target1"][0] ,true_v, task_dim, domain='pendulum', task_aug_kernel = task_aug_kernel, already_compute = already_compute)
         print(f" The similarity between the estimated and true most related source task is: ", similarity)
         print(est_v.T) #debug
         related_source_est_similarities.append(similarity.item())

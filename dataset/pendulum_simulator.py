@@ -103,7 +103,7 @@ class Pendulum:
         v_x = self.l * self.dtheta * np.cos(self.theta)
         v_y = self.l * self.dtheta * np.sin(self.theta)
         R = np.array([w_x - v_x, w_y - v_y])
-        F = self.Cd1 * np.linalg.norm(R) * R + self.Cd2 * R
+        F = self.Cd1 * np.linalg.norm(R)**2 * R + self.Cd2 * R
         F *= self.Cd3
         damping = self.alpha1 * self.dtheta + self.alpha2 * self.dtheta * np.abs(self.dtheta)
         return self.l * np.sin(self.theta) * F[1] + self.l * np.cos(self.theta) * F[0] \
