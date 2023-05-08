@@ -110,7 +110,6 @@ class PyTorchPassiveTrainer():
                                             num_workers=self.trainer_config["num_workers"])
             total_Loss = 0
             print(f"Testing on {len(test_dataset)} samples.")
-            print(test_dataset)
             for input, label, w in loader:
                 input, label = input.float().cuda(), label.float().cuda()
                 if self.task_aug_kernel is not None:

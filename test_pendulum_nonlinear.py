@@ -1,15 +1,13 @@
 import numpy as np
-from torch.nn import functional as F
 from dataset.utils import load_and_process_data, generate_orth, generate_fourier_kernel, generate_pendulum_specified_kernel
-from dataset.pendulum_simulator import PendulumSimulatorDataset
-from model.linear import ModifiedLinear
+from dataset.pendulum_simulator import PendulumSimulatorDataset, Pendulum
 from model.shallow import ModifiedShallow
 from model.bilinear import ModifiedBiLinear, ModifiedBiLinear_augmented
 from strategies.al_sampling import MTALSampling, MTALSampling_TaskSparse
 from strategies.baseline_sampling import RandomSampling, FixBaseSampling
 from trainer.pytorch_passive_trainer import PyTorchPassiveTrainer
 from trainer.trainer import *
-from metrics.utils import rowspace_dist, rowspace_dist2, most_related_source
+from metrics.utils import rowspace_dist, rowspace_dist2, most_related_source, sim_pendulum
 
 import pandas as pd
 import seaborn as sns
@@ -23,7 +21,9 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=43, help="Random seed.")
     args = parser.parse_args()
 
-    with open(f"configs/pendulum_nonlinear/{args.config}.json") as f:
+    folder = "pendulum_nonlinear_highErrorBar"
+
+    with open(f"configs/{folder}/{args.config}.json") as f:
         config = json.load(f)
 
     task_dim = 5 + 1 # TODO
@@ -34,8 +34,9 @@ if __name__ == "__main__":
     aug_dim = config["input_dim"]
     
     #### Generate the synthetic target dataset
-    # Set random seed to generate the data.
+    # Set random seed to generate the data and noise.
     data_seed = args.seed
+    noise_var = config["noise_var"] if "noise_var" in config else 0.5
     # Set the actual target that we cannot observe.
     actual_target = [0.5, 0.5, 0, 0, 0, 0] if "actual_target" not in config else config["actual_target"]
     actual_target = np.array(actual_target)
@@ -61,7 +62,7 @@ if __name__ == "__main__":
     # Generate the synthetic data for target tasks
     dataset = PendulumSimulatorDataset(input_aug_kernel=fourier_kernel, actual_target=actual_target)
     dataset.generate_synthetic_data({'target1_test': target_task_dict['target1_test']}, seed = 43 + 2343, noise_var= 0)
-    dataset.generate_synthetic_data({'target1': target_task_dict['target1']}, seed = data_seed, noise_var=0.5)
+    dataset.generate_synthetic_data({'target1': target_task_dict['target1']}, seed = data_seed, noise_var= noise_var)
 
     total_task_list = list(dataset.get_sampled_train_tasks().keys())
     dataset.get_dataset(total_task_list, mixed=True)
@@ -83,7 +84,7 @@ if __name__ == "__main__":
         # trainer_config = {"trainer_name":"pytorch_passive", "max_epoch": 10*embed_dim, "train_batch_size": 512, "lr": 0.01, "num_workers": 10,\
         #                     "optim_name": "SGD", "scheduler_name": "StepLR", "step_size": 500, "gamma": 0.9,
         #                     "test_batch_size": 1000}
-        # trainer_config = {"trainer_name":"pytorch_passive", "max_epoch": 10, "train_batch_size": 512, "lr": 0.01, "num_workers": 10,\
+        # trainer_config = {"trainer_name":"pytorch_passive", "max_epoch": 2, "train_batch_size": 512, "lr": 0.01, "num_workers": 10,\
         #                 "optim_name": "SGD", "scheduler_name": "StepLR", "step_size": 500, "gamma": 0.9,
         #                 "test_batch_size": 1000}
         trainer_config = get_optimizer_fn(trainer_config)
@@ -93,8 +94,10 @@ if __name__ == "__main__":
 
 
     # Generate the model
+    torch.manual_seed(43)
     train_model = ModifiedBiLinear_augmented(aug_dim, task_aug_dim, embed_dim, ret_emb = False)
     if config["active"]:
+        torch.manual_seed(43)
         stable_model = ModifiedBiLinear_augmented(aug_dim, task_aug_dim, embed_dim, ret_emb = False)
     else:
         stable_model = train_model
@@ -150,7 +153,7 @@ if __name__ == "__main__":
             # cur_task_dict = {"source1": (true_v, budget)} # debug
             # cur_task_dict = {"source1": (actual_target, budget)} # debug
             # print("Current task dict: ", cur_task_dict) #debug
-            dataset.generate_synthetic_data(cur_task_dict, seed = outer_epoch +  data_seed, noise_var=0.5) # noise_var=None
+            dataset.generate_synthetic_data(cur_task_dict, seed = outer_epoch +  data_seed, noise_var=noise_var) # noise_var=None
             total_task_list = list(dataset.get_sampled_train_tasks().keys())
             # print(dataset.get_sampled_train_tasks())
             
@@ -206,14 +209,27 @@ if __name__ == "__main__":
     results_name += f"_target_sample_num{config['num_target_sample']}"
     results_name += f"_seed{data_seed}"
     results_name += f"_actual_target{config['actual_target']}" if "actual_target" in config else "default"
-    results.to_csv(f"results/pendulum_nonlinear/{results_name}.csv", index=False)
+    results.to_csv(f"results/{folder}/{results_name}.csv", index=False)
 
-    # fig, axes = plt.subplots(1,2, figsize=(25,25))
-    # axes[0].set_title('Test loss for target')
-    # sns.lineplot(x="budget", y="loss", data=results, ax = axes[0])
-    # axes[1].set_title('Acc on estimated most related source task')
-    # sns.lineplot(x="budget", y="related_source_est_similarities", data=results, ax = axes[1])
+    # Save the model
+    torch.save(train_model.state_dict(), f"results/{folder}/{results_name}.pt")
 
-    # fig.savefig(f"results/pendulum_ball/{results_name}.pdf")
+
+    # def predict_from_trainedModel(x):
+    #     aug_x = fourier_kernel(x)
+    #     aug_x = torch.from_numpy(aug_x).float().cuda()
+    #     train_model.eval()
+    #     observe_target_w = dataset.get_sampled_test_tasks()["target1_test"]
+    #     observe_target_w = task_aug_kernel(observe_target_w.T)
+    #     observe_target_w = torch.from_numpy(observe_target_w).float().cuda()
+    #     return train_model(aug_x, observe_target_w.T, ret_feat_and_label=False).cpu().detach().numpy()
+
+    # pendulum = Pendulum(duration=20, w=actual_target, policy_type="learned", learned_F_model = predict_from_trainedModel, noise_var=0.05, seed= 43 + 2343)
+    # sim_pendulum(pendulum, plot=True, save_path=f"results/{folder}/{results_name}.png")
+    # if config["active"]:
+    #     pendulum = Pendulum(duration=20, w=actual_target, policy_type="oracle", noise_var=0.05, seed= 43 + 2343)
+    #     sim_pendulum(pendulum, plot=True, save_path=f"results/{folder}/{results_name}_gt.png")
+
+
 
 

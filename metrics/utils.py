@@ -1,5 +1,6 @@
 import numpy as np
 from dataset.utils import generate_pendulum_specified_kernel
+from matplotlib import pyplot as plt
 
 def rowspace_dist(est,target,metric='both'):
     """Compute the angle between two matrices.
@@ -81,3 +82,49 @@ def compute_matrix_spectrum(w, aug_kernel):
     tmp = aug_kernel(w)[:,:-1]
     eigs = np.linalg.eigvals(tmp.T @ tmp)
     return np.max(eigs), np.min(eigs), np.max(eigs)/np.min(eigs)
+
+
+def sim_pendulum(pendulum, plot=False, save_path=None):
+
+    Theta, Dtheta, Control, Fd_data, Fd_gt = pendulum.simulate()
+    time = np.linspace(1e-2, pendulum.duration, int(pendulum.duration*1e2))
+
+    if plot:
+        plt.figure(figsize=(14,4))
+        plt.subplot(1, 3, 1)
+        line1, = plt.plot(time[:], Theta)
+        line2, = plt.plot(time[:], Dtheta)
+        line3, = plt.plot(time[:], 0*Theta, linestyle='--', color='red')
+        plt.xlabel("time/s")
+        plt.title("Data: state")
+        plt.legend([line1, line2], ["theta", "dtheta"])
+
+        plt.subplot(1, 3, 2)
+        plt.plot(time[:], Control)
+        plt.xlabel("time/s")
+        plt.title("Data: u")
+
+        plt.subplot(1, 3, 3)
+        line1, = plt.plot(time[:], Fd_data)
+        line2, = plt.plot(time[:], Fd_gt)
+        plt.xlabel("time/s")
+        plt.legend([line1, line2], ["Fd_data", "Fd_gt"])
+        plt.title("Data: Fd gt and observation")
+        plt.show()
+
+        if save_path is not None:
+            plt.savefig(save_path)
+    
+        plt.figure(figsize=(12,4))
+        plt.subplot(1, 2, 1)
+        plt.hist2d(Theta, Dtheta, bins=100)
+        plt.title('2D histogram of state')
+        
+        plt.subplot(1, 2, 2)
+        plt.hist(Fd_data, bins=100)
+        plt.title('Histogram of Fd_data')
+
+    results = {'Theta': Theta, 'Dtheta': Dtheta, 'Control': Control, 'Fd_data': Fd_data, 'Fd_gt': Fd_gt, 'time': time}
+    results_gt = {'Theta': Theta*0, 'time': time}
+
+    return results, results_gt

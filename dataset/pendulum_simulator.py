@@ -9,9 +9,12 @@ class Pendulum:
 
     def __init__(self, init_theta=0.0, init_dtheta=0.0, duration=20, \
                  w=np.array([0, 0, 0.5, 0.5, 1, 9, 0.5, 0.5]), policy_type='learned', noise_var=0.5, \
-                    seed = None):
+                    seed = None, learned_F_model=None):
         self.duration = duration
         self.policy_type = policy_type
+        if policy_type == 'learned':
+            assert learned_F_model is not None, "Need to provide learned_F_model."
+        self.learned_F_model = learned_F_model
         
         # Pendulum parameters
         
@@ -127,11 +130,13 @@ class Pendulum:
         u_feedforward = -self.m * self.l * self.g_hat * np.sin(self.theta)
         u_random = self.u_noise
         
-        # TODO: add the learned model here
-        F_d_learned = 0.
-        u_learned = -F_d_learned
+
         
-        if self.policy_type == 'learned':
+        if self.policy_type == 'learned':        
+            # add the learned model here
+            input = np.array([[self.theta, self.dtheta]])
+            F_d_learned = self.learned_F_model(input)
+            u_learned = -F_d_learned
             self.u = u_feedback + u_feedforward + u_random + u_learned
         elif self.policy_type == 'random':
             self.u = u_feedback + u_feedforward + 40 * u_random

@@ -10,6 +10,8 @@ class ModifiedBiLinear(nn.Module):
         # self.linear1.weight.data /= 10
         self.linear2 = nn.Linear(embed_dim, num_output, bias = bias)
         # self.linear2.weight.data /= 10
+        # print(self.linear1.weight.data) #debug
+        # print(self.linear2.weight.data) #debug
         self.num_output = num_output
         self.num_input = num_input
         self.embed_dim = embed_dim
@@ -86,6 +88,8 @@ class ModifiedBiLinear_augmented(nn.Module):
         # self.linear1.weight.data /= 10
         self.linear2 = nn.Linear(embed_dim+1, num_output+1, bias = bias)
         # self.linear2.weight.data /= 10
+        # print(self.linear1.weight.data) #debug
+        # print(self.linear2.weight.data) #debug
         self.num_output = num_output
         self.num_input = num_input
         self.embed_dim = embed_dim
@@ -103,7 +107,7 @@ class ModifiedBiLinear_augmented(nn.Module):
             return features
                 
         assert w is not None and len(w.shape) == 2, "w should be a 2-d matrix."
-        assert w.shape[0] == self.num_output, "w should be of shape (num_output, ...)."
+        assert w.shape[0] == self.num_output, f"w should be of shape ({self.num_output}, ...)."
         assert w.shape[1] == 1 or w.shape[1] == len(features), "w should be of shape (..., num_input) or (..., 1)"
         # aug_w = np.concatenate([w, np.ones((1,w.shape[1]))], axis=0)
         aug_w = torch.cat([w, torch.zeros((1, w.shape[1])).cuda()], dim=0)
