@@ -154,7 +154,7 @@ class MTALSampling(Strategy):
             diff = 1
             iter = 0
             v = 0
-            while diff > 0.01 and iter < 6:
+            while diff > 0.001 and iter < 10:
                 np.random.seed()
                 tmp = np.random.uniform(-1,1, (sample_num, self.task_dim ))*0.5**iter + v
                 tmp[:,-1] = 0

@@ -50,7 +50,7 @@ def most_related_source(model, target_vector, true_v, task_dim, domain='ball', t
             iter = 0
             target_vector = task_aug_kernel(target_vector.T)
             v = 0
-            while diff > 0.01 and iter < 6:
+            while diff > 0.001 and iter < 10:
                 np.random.seed()
                 tmp = np.random.uniform(-1,1, (sample_num, task_dim ))*0.5**iter + v
                 tmp[:,-1] = 0

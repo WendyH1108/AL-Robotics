@@ -38,6 +38,8 @@ if __name__ == "__main__":
     data_seed = args.seed
     noise_var = config["noise_var"] if "noise_var" in config else 0.5
     # Set the actual target that we cannot observe.
+    print(f"configs/{folder}/{args.config}.json")
+    print(config["actual_target"])
     actual_target = [0.5, 0.5, 0, 0, 0, 0] if "actual_target" not in config else config["actual_target"]
     actual_target = np.array(actual_target)
     # Generate a single target task that is perpendicular to the source tasks space.
@@ -70,15 +72,15 @@ if __name__ == "__main__":
     ## Set the trainer config
     def update_trainer_config(budget):
         if budget < 2e4:
-            trainer_config = {"trainer_name":"pytorch_passive", "max_epoch": 10*embed_dim, "train_batch_size": 512, "lr": 0.01, "num_workers": 10,\
+            trainer_config = {"trainer_name":"pytorch_passive", "max_epoch": 10*embed_dim, "train_batch_size": 512, "lr": 0.01, "num_workers": 6,\
                             "optim_name": "AdamW", "wd":0.05, "scheduler_name": "StepLR", "step_size": 500, "gamma": 0.9,
                             "test_batch_size": 1000}
         elif budget < 4e4:
-            trainer_config = {"trainer_name":"pytorch_passive", "max_epoch": 12*embed_dim, "train_batch_size": 512, "lr": 0.01, "num_workers": 10,\
+            trainer_config = {"trainer_name":"pytorch_passive", "max_epoch": 12*embed_dim, "train_batch_size": 512, "lr": 0.01, "num_workers": 6,\
                             "optim_name": "AdamW", "wd":0.05, "scheduler_name": "StepLR", "step_size": 900, "gamma": 0.9,
                             "test_batch_size": 1000}
         else:
-            trainer_config = {"trainer_name":"pytorch_passive", "max_epoch": 15*embed_dim, "train_batch_size": 512, "lr": 0.01, "num_workers": 10,\
+            trainer_config = {"trainer_name":"pytorch_passive", "max_epoch": 15*embed_dim, "train_batch_size": 512, "lr": 0.01, "num_workers": 6,\
                             "optim_name": "AdamW", "wd":0.05, "scheduler_name": "StepLR", "step_size": 1300, "gamma": 0.9,
                             "test_batch_size": 1000}      
         # trainer_config = {"trainer_name":"pytorch_passive", "max_epoch": 10*embed_dim, "train_batch_size": 512, "lr": 0.01, "num_workers": 10,\
@@ -87,6 +89,14 @@ if __name__ == "__main__":
         # trainer_config = {"trainer_name":"pytorch_passive", "max_epoch": 2, "train_batch_size": 512, "lr": 0.01, "num_workers": 10,\
         #                 "optim_name": "SGD", "scheduler_name": "StepLR", "step_size": 500, "gamma": 0.9,
         #                 "test_batch_size": 1000}
+        trainer_config = get_optimizer_fn(trainer_config)
+        trainer_config = get_scheduler_fn(trainer_config)
+        return trainer_config
+    
+    def update_trainer_config_linear():
+        trainer_config = {"trainer_name":"pytorch_passive", "max_epoch": 5*embed_dim, "train_batch_size": 512, "lr": 0.001, "num_workers": 6,\
+                            "optim_name": "AdamW", "wd":0.05, "scheduler_name": "StepLR", "step_size": 500, "gamma": 0.9,
+                            "test_batch_size": 1000}      
         trainer_config = get_optimizer_fn(trainer_config)
         trainer_config = get_scheduler_fn(trainer_config)
         return trainer_config
@@ -106,7 +116,7 @@ if __name__ == "__main__":
     total_task_list = list(dataset.get_sampled_train_tasks().keys())
     trainer = PyTorchPassiveTrainer(update_trainer_config(0), train_model, task_aug_kernel = task_aug_kernel)
     trainer.train(dataset, total_task_list , freeze_rep = False, shuffle=True, need_print=False)
-    trainer.test(dataset, dataset.get_sampled_test_tasks().keys())
+    avg_Loss = trainer.test(dataset, dataset.get_sampled_test_tasks().keys())
 
     # Set the strategy
     if config["active"]:
@@ -128,9 +138,9 @@ if __name__ == "__main__":
     # Right now it is still exponential increase, but we can change it to linear increase.
     # Change to linear increase requires more careful design of the budget allocation. Pending.
     # Or change it to a fixed budget for each outer epoch. Pending.
-    cumulative_budgets = []
-    losses = []
-    related_source_est_similarities = []
+    cumulative_budgets = [0]
+    losses = [avg_Loss]
+    related_source_est_similarities = [0]
     condi = 1
     for outer_epoch in range(0,outer_epoch_num):
         print("Outer epoch: ", outer_epoch)
@@ -148,7 +158,7 @@ if __name__ == "__main__":
         while not end_of_epoch:
             cur_task_dict, end_of_epoch = strategy.select(stable_model, budget, outer_epoch, inner_epoch, adjustable_budget_ratio=1)
             # print("Current task dict: ", cur_task_dict) #debug
-            # cur_task_dict = {"source1": (np.array([ 0.26983025, -0.15776465, -0.14325377, -0.83220568,  0.43498737,  0.  ]), budget)} # debug
+            # cur_task_dict = {"source1": (np.array([ 3.05888154e-01, 6.26928956e-01, -4.23360045e-01, 4.66590470e-01,  -3.41250202e-01,  0.  ]), budget)} # debug
             # cur_task_dict = {"source1": (np.array([ 0, 0, 1, 0, 0,  0.  ]), budget)} # debug
             # cur_task_dict = {"source1": (true_v, budget)} # debug
             # cur_task_dict = {"source1": (actual_target, budget)} # debug
@@ -177,7 +187,12 @@ if __name__ == "__main__":
                 stable_model = train_model
             
             inner_epoch += 1
+
+        trainer.test(dataset, dataset.get_sampled_test_tasks().keys())
+        PyTorchPassiveTrainer(update_trainer_config_linear(), train_model, task_aug_kernel = task_aug_kernel).train(dataset, ["target1"], freeze_rep = True, shuffle=True, need_print=False)
         avg_Loss = trainer.test(dataset, dataset.get_sampled_test_tasks().keys())
+        # if config["active"]:
+        #     stable_trainer.train(dataset, ["target1"], freeze_rep = True, shuffle=True, need_print=False)
         losses.append(avg_Loss)
         if cumulative_budgets:
             cumulative_budgets.append(cumulative_budgets[-1] + budget)
