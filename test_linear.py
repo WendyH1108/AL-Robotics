@@ -20,6 +20,7 @@ from matplotlib import pyplot as plt
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, help="Path to configuration file.")
+    parser.add_argument("--data_seed", type=int, default=43)
     args = parser.parse_args()
 
     with open(f"configs/{args.config}.json") as f:
@@ -28,6 +29,7 @@ if __name__ == "__main__":
     ## [Generate the synthetic input dataset] ##
     num_unlabeled_sample = 500000
     input_dim = config["input_dim"]
+    np.random.seed(args.data_seed)
     input_data = np.random.random((num_unlabeled_sample, input_dim))
     embed_dim = config["embed_dim"] # dim(\phi(x))
     task_dim = embed_dim*config["task_embed_ratio"] # dim(w
@@ -186,21 +188,22 @@ if __name__ == "__main__":
         results_name += "_target_aware" if config["target_aware"] else "_target_agnostic"
     results_name += f"_target_sample_num{config['num_target_sample']}"
     results_name += f"_seed{config['task_embed_matrix_seed']}"
+    results_name += f"_data_seed{args.data_seed}"
     results.to_csv(f"results/{results_name}.csv", index=False)
 
-    fig, axes = plt.subplots(2,2, figsize=(25,25))
-    axes[0,0].set_title('Test loss for target')
-    sns.lineplot(x="budget", y="loss", data=results, ax = axes[0,0])
-    try:
-        axes[0,1].set_title('Acc on estimated most related source task')
-        sns.lineplot(x="budget", y="related_source_est_similarities", data=results, ax = axes[0,1])
-    except:
-        pass
-    axes[1,0].set_title('Input embed space similarity')
-    sns.lineplot(x="budget", y="input_embed_space_est_similarities", data=results, ax = axes[1,0])
-    axes[1,1].set_title('Task embed space similarity')
-    sns.lineplot(x="budget", y="task_embed_space_est_similarities_lower", data=results, ax = axes[1,1])
-    fig.savefig(f"results/{results_name}.pdf")
+    # fig, axes = plt.subplots(2,2, figsize=(25,25))
+    # axes[0,0].set_title('Test loss for target')
+    # sns.lineplot(x="budget", y="loss", data=results, ax = axes[0,0])
+    # try:
+    #     axes[0,1].set_title('Acc on estimated most related source task')
+    #     sns.lineplot(x="budget", y="related_source_est_similarities", data=results, ax = axes[0,1])
+    # except:
+    #     pass
+    # axes[1,0].set_title('Input embed space similarity')
+    # sns.lineplot(x="budget", y="input_embed_space_est_similarities", data=results, ax = axes[1,0])
+    # axes[1,1].set_title('Task embed space similarity')
+    # sns.lineplot(x="budget", y="task_embed_space_est_similarities_lower", data=results, ax = axes[1,1])
+    # fig.savefig(f"results/results/{results_name}.pdf")
     
 
 

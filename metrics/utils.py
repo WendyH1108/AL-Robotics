@@ -31,3 +31,12 @@ def rowspace_dist2(est, target, tol_ratio = 3):
     upper =  np.linalg.eigvalsh(est_matrix - tol_ratio*target @ target.T).max()
     lower =  np.linalg.eigvalsh(est_matrix - 1/tol_ratio*target @ target.T).min()
     return upper, lower
+
+def compute_relevantSource_similarity(model, target_vector):
+    embed_matrx = model.get_full_task_embed_matrix()
+    embed_restrict_matrx = model.get_restricted_task_embed_matrix()
+    # TODO : might want to add r cond here when target is not single
+    v = np.linalg.lstsq(embed_restrict_matrx, embed_matrx @ target_vector, rcond=None)[0]
+    v_norm = np.linalg.norm(v)
+    v = v/v_norm
+    return v

@@ -105,6 +105,14 @@ def generate_orth(shape, seed=None):
     print(f" orth shape: {orth.shape}")
     return orth
 
-# if __name__=="main":
-#     rawdata=load_data("./data/training")
-#     print(len(rawdata))
+def generate_fourier_kernel(input_dim, aug_dim, seed=None):
+    '''
+    :param input_dim: the dimension of the input data.
+    :param aug_dim: the number of random fourier features to generate.
+    :return: w, b, and the function that generates the random fourier features.
+    '''
+    if seed is not None: np.random.seed(seed)
+    w = np.random.normal(size=(aug_dim, input_dim))
+    if seed is not None: np.random.seed(seed)
+    b = np.random.uniform(low=0, high=2*np.pi, size=(aug_dim,1))
+    return w, b, lambda x: np.cos(w @ x.T + b).T

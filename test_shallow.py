@@ -8,7 +8,7 @@ from strategies.al_sampling import MTALSampling, MTALSampling_TaskSparse
 from strategies.baseline_sampling import RandomSampling, FixBaseSampling
 from trainer.pytorch_passive_trainer import PyTorchPassiveTrainer
 from trainer.trainer import *
-from metrics.utils import rowspace_dist, rowspace_dist2
+from metrics.utils import rowspace_dist, rowspace_dist2, compute_relevantSource_similarity
 
 import pandas as pd
 import seaborn as sns
@@ -19,14 +19,16 @@ from matplotlib import pyplot as plt
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, help="Path to configuration file.")
+    parser.add_argument("--data_seed", type=int, default=43)
     args = parser.parse_args()
 
-    with open(f"configs/{args.config}.json") as f:
+    with open(f"configs2/{args.config}.json") as f:
         config = json.load(f)
 
     ## [Generate the synthetic input dataset] ##
     num_unlabeled_sample = 500000
     input_dim = config["input_dim"]
+    np.random.seed(args.data_seed)
     input_data = np.random.random((num_unlabeled_sample, input_dim))
     embed_dim = config["embed_dim"] # dim(\phi(x))
     task_dim = embed_dim*config["task_embed_ratio"] # dim(w
@@ -105,7 +107,7 @@ if __name__ == "__main__":
 
     exp_base = 1.2 if "exp_base" not in config else config["exp_base"]
 
-    outer_epoch_num = 4 if "outer_epoch_num" not in config else config["outer_epoch_num"]
+    outer_epoch_num = 4 if "outer_epoch_num" not in config else config["outer_epoch_num"] + 1
     base_len_ratio = 1 if "base_len_ratio" not in config else config["base_len_ratio"]
     # trainer = PyTorchPassiveTrainer(trainer_config, train_model) #debug
     # Right now it is still exponential increase, but we can change it to linear increase.
@@ -113,7 +115,7 @@ if __name__ == "__main__":
     # Or change it to a fixed budget for each outer epoch. Pending.
     culmulative_budgets = []
     losses = []
-    related_source_est_similarities = [0]
+    related_source_est_similarities = []
     task_embed_space_est_similarities_upper = []
     task_embed_space_est_similarities_lower = []
     for outer_epoch in range(outer_epoch_num):
@@ -154,10 +156,13 @@ if __name__ == "__main__":
         # Distance between the ground truth most related source task and the estimation most related source task
         if f"exploit_epoch{outer_epoch}_{0}" in cur_task_dict:
             est_v = cur_task_dict[f"exploit_epoch{outer_epoch}_{0}"][0]
-            # Compuete similarity
-            print("The similarity betten the estimated and true most related source task is: ", est_v.T @ true_v)
-            similarity = est_v.T @ true_v
-            related_source_est_similarities.append(similarity[0][0])
+
+        else:
+            est_v = compute_relevantSource_similarity(train_model, target_task_dict["target1"][0])
+        # Compuete similarity
+        print("The similarity betten the estimated and true most related source task is: ", est_v.T @ true_v)
+        similarity = est_v.T @ true_v
+        related_source_est_similarities.append(similarity[0][0])
 
     print(culmulative_budgets)
     print(losses)
@@ -166,15 +171,10 @@ if __name__ == "__main__":
     print(task_embed_space_est_similarities_lower)
 
 
-    try:
-        results = pd.DataFrame({"budget": culmulative_budgets, "loss": losses, "related_source_est_similarities": related_source_est_similarities, \
-                                "task_embed_space_est_similarities_upper": task_embed_space_est_similarities_upper, \
-                                "task_embed_space_est_similarities_lower": task_embed_space_est_similarities_lower})
-    except:
-        results = pd.DataFrame({"budget": culmulative_budgets, "loss": losses, \
-                                "task_embed_space_est_similarities_upper": task_embed_space_est_similarities_upper, \
-                                "task_embed_space_est_similarities_lower": task_embed_space_est_similarities_lower})     
-         
+    results = pd.DataFrame({"budget": culmulative_budgets, "loss": losses, "related_source_est_similarities": related_source_est_similarities, \
+                            "task_embed_space_est_similarities_upper": task_embed_space_est_similarities_upper, \
+                            "task_embed_space_est_similarities_lower": task_embed_space_est_similarities_lower})
+        
     results_name = f"embed_dim{config['embed_dim']}"
     results_name += "_active" if config["active"] else "_passive"
     results_name += "_saving_task_num" if config["saving_task_num"] else "_not_saving_task_num"
@@ -182,20 +182,21 @@ if __name__ == "__main__":
         results_name += "_target_aware" if config["target_aware"] else "_target_agnostic"
     results_name += f"_target_sample_num{config['num_target_sample']}"
     results_name += f"_seed{config['task_embed_matrix_seed']}"
-    results.to_csv(f"results2/{results_name}.csv", index=False)
+    results_name += f"_data_seed{args.data_seed}"
+    results.to_csv(f"results2/shallow/{results_name}.csv", index=False)
 
-    fig, axes = plt.subplots(2,2, figsize=(25,25))
-    axes[0,0].set_title('Test loss for target')
-    sns.lineplot(x="budget", y="loss", data=results, ax = axes[0,0])
-    try:
-        axes[0,1].set_title('Acc on estimated most related source task')
-        sns.lineplot(x="budget", y="related_source_est_similarities", data=results, ax = axes[0,1])
-    except:
-        pass
-    axes[1,0].set_title('Input embed space similarity')
-    axes[1,1].set_title('Task embed space similarity')
-    sns.lineplot(x="budget", y="task_embed_space_est_similarities_lower", data=results, ax = axes[1,1])
-    fig.savefig(f"results2/{results_name}.pdf")
+    # fig, axes = plt.subplots(2,2, figsize=(25,25))
+    # axes[0,0].set_title('Test loss for target')
+    # sns.lineplot(x="budget", y="loss", data=results, ax = axes[0,0])
+    # try:
+    #     axes[0,1].set_title('Acc on estimated most related source task')
+    #     sns.lineplot(x="budget", y="related_source_est_similarities", data=results, ax = axes[0,1])
+    # except:
+    #     pass
+    # axes[1,0].set_title('Input embed space similarity')
+    # axes[1,1].set_title('Task embed space similarity')
+    # sns.lineplot(x="budget", y="task_embed_space_est_similarities_lower", data=results, ax = axes[1,1])
+    # fig.savefig(f"results2/{results_name}.pdf")
     
 
 
