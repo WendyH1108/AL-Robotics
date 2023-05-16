@@ -267,13 +267,15 @@ class SimuDataset:
     def __init__(self, input_data, input_label, input_ws):
 
         self.input_data = self.__preprocess(input_data)
-        self.input_label = input_label
+        self.input_label = self.__preprocess(input_label)
         self.input_ws = input_ws
         self.sampled_train_tasks = {} 
         self.sampled_test_tasks = {}
+        self.test_data = {}
         self.label_sets = {}
         self.batch_size = 100
         self.num_workers = 4
+        self.input_ind_sets = {}
 
     def __preprocess(self, dataset):
         """
@@ -286,7 +288,7 @@ class SimuDataset:
             dataset_std = np.std(dataset[task], axis=0)
             dataset[task] = torch.Tensor(dataset[task] - dataset_mean)/dataset_std
         return dataset
-
+    
     def generate_random_inputs(self, total_len, n, seed=None):
         """
         Generate random inputs.
@@ -298,8 +300,8 @@ class SimuDataset:
         selected_idx = np.random.choice(total_len, n)
         return selected_idx
 
-
-    def get_dataset(self, task_dict, mixed):
+        
+    def get_dataset(self, task_dict, mixed, test=False, seed = None):
         """
         Get dataset for the task.
         :param str task_name: name of the task
@@ -313,16 +315,29 @@ class SimuDataset:
             input_ws = []
             for task_name in task_name_list:
                 w = task_dict[task_name][0]
-                if "test" in task_name:
-                    self.sampled_test_tasks.update({task_name: w})
-                else:
-                    self.sampled_train_tasks.update({task_name: w})
                 n = task_dict[task_name][1]
-                idx = self.generate_random_inputs(self.input_data[task_name].shape[0], n)
-                input_data += self.input_data[task_name][idx]
-                input_label += [self.input_label[task_name][idx]]
-                input_ws += torch.tensor(self.input_ws[task_name])[idx]
-            output = DatasetOnMemory(input_data, np.array(input_label).flatten(), input_ws)
+                if "test" in task_name:
+                    if not test:
+                        continue
+                    self.sampled_test_tasks.update({task_name: w})
+                    ori_task_name = task_name[:-5]
+                else:
+                    if test:
+                        continue
+                    ori_task_name = task_name
+                    self.sampled_train_tasks.update({task_name: w})
+                idx = self.generate_random_inputs(self.input_data[ori_task_name].shape[0], n, seed = seed)
+                if task_name in self.input_ind_sets:
+                    self.input_ind_sets[task_name].extend(idx.tolist())
+                        
+                else:
+                    self.input_ind_sets[task_name] = idx.tolist()
+                input_data += self.input_data[ori_task_name][self.input_ind_sets[task_name]]
+                input_label += self.input_label[ori_task_name][self.input_ind_sets[task_name]]
+                input_ws += torch.tensor(np.tile(self.input_ws[ori_task_name][0],(len(self.input_ind_sets[task_name]),1)))
+            # output = DatasetOnMemory(input_data, np.array(input_label).flatten(), input_ws)
+            output = DatasetOnMemory(input_data, input_label, input_ws)
+
         else:
             output = {}
             for task_name in task_name_list:
@@ -330,6 +345,8 @@ class SimuDataset:
                 if "test" in task_name:
                     self.sampled_test_tasks.update({task_name: w})
                 else:
+                    if test:
+                        continue
                     self.sampled_train_tasks.update({task_name: w})
                 n = task_dict[task_name][1]
                 idx = self.generate_random_inputs(self.input_data[task_name].shape[0], n)
