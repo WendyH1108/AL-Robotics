@@ -8,7 +8,8 @@ from dataset.dataset_skeleton import MyDataset, DatasetOnMemory
 class Pendulum:
 
     def __init__(self, init_theta=0.0, init_dtheta=0.0, duration=20, \
-                 w=np.array([0, 0, 0.5, 0.5, 1, 9, 0.5, 0.5]), policy_type='learned', noise_var=0.5, \
+                 w=np.array([0, 0, 0.5, 0.5, 1, 9, 0.5, 0.5]), policy_type='learned', noise_var=0.5, 
+                    u_var = 0.1,\
                     seed = None, learned_F_model=None):
         self.duration = duration
         self.policy_type = policy_type
@@ -84,7 +85,7 @@ class Pendulum:
         self.gain = 1.5
         
         # Noise
-        self.u_noise_sigma = 0.1
+        self.u_noise_sigma = u_var
         self.u_noise = 0.0
         self.a_noise_sigma = noise_var
         self.a_noise = 0.0
