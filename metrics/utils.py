@@ -10,9 +10,11 @@ def rowspace_dist(est,target,metric='both'):
     _, _, vh_est = np.linalg.svd(est, full_matrices=False)
     _, _, vh_target = np.linalg.svd(target, full_matrices=False)
     dist_matrix = vh_target @ vh_est.T
+    dist_matrix = [dist_matrix.squeeze()]
     # print("dist_matrix",dist_matrix)
     if metric == 'avg':
-        return np.linalg.norm(dist_matrix, 'fro')**2/len(vh_target)
+        # return np.linalg.norm(dist_matrix, 'fro')**2/len(vh_target)
+        return np.linalg.norm(dist_matrix)**2/len(vh_target)
     elif metric == 'min':
         return (np.linalg.norm(dist_matrix, axis=1).min())**2
     elif metric == 'both':
