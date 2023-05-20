@@ -194,6 +194,7 @@ if __name__ == "__main__":
     results_name += f"_target_sample_num{config['num_target_sample']}"
     results_name += f"_seed{config['task_embed_matrix_seed']}"
     results_name += f"_data_seed{args.data_seed}"
+    print(f"results2/archive/{results_name}.csv")
     results.to_csv(f"results2/archive/{results_name}.csv", index=False)
 
     # fig, axes = plt.subplots(2,2, figsize=(25,25))
