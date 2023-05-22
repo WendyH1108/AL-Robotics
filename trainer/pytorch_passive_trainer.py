@@ -28,7 +28,7 @@ class PyTorchPassiveTrainer():
         """
 
         # Get the training dataset based on the task_name_list.
-        train_dataset = dataset.get_dataset(train_task_name_list, mixed=True, seed = seed)
+        train_dataset = dataset.get_dataset(train_task_name_list, mixed=True)
         print(f"Training on {len(train_dataset)} samples.")
         # Set various parameters.
         max_epoch = self.trainer_config["max_epoch"]
@@ -74,7 +74,7 @@ class PyTorchPassiveTrainer():
         if device == "cuda":
             self.model.cuda()
         # Get the training dataset based on the task_name_list.
-        test_dataset = dataset.get_dataset(test_task_name_list, mixed=True, test = True)
+        test_dataset = dataset.get_dataset(test_task_name_list, mixed=True)
 
         loader = DataLoader(test_dataset, batch_size=self.trainer_config["test_batch_size"], shuffle=False,
                             num_workers=self.trainer_config["num_workers"])

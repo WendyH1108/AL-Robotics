@@ -25,6 +25,8 @@ if __name__ == "__main__":
     with open(f"configs2/{args.config}.json") as f:
         config = json.load(f)
 
+    config["num_target_sample"] = 800 #DO some hack here
+
     ## [Generate the synthetic input dataset] ##
     num_unlabeled_sample = 500000
     input_dim = config["input_dim"]

@@ -26,6 +26,8 @@ if __name__ == "__main__":
     with open(f"configs/{args.config}.json") as f:
         config = json.load(f)
 
+    config["num_target_sample"] = 800 #DO some hack here
+
     ## [Generate the synthetic input dataset] ##
     num_unlabeled_sample = 500000
     input_dim = config["input_dim"]
@@ -189,6 +191,7 @@ if __name__ == "__main__":
     results_name += f"_target_sample_num{config['num_target_sample']}"
     results_name += f"_seed{config['task_embed_matrix_seed']}"
     results_name += f"_data_seed{args.data_seed}"
+    print(results_name)
     results.to_csv(f"results/{results_name}.csv", index=False)
 
     # fig, axes = plt.subplots(2,2, figsize=(25,25))
