@@ -28,13 +28,13 @@ if __name__ == "__main__":
   args = parser.parse_args()
   shared_features = ['v', 'q', 'pwm']
   rawdata_nontrans = load_data("./data/training/")
-  rawdata_transfer = load_data("./data/training-transfer/")
-  # rawdata_transfer = []
+  # rawdata_transfer = load_data("./data/training-transfer/")
+  rawdata_transfer = []
   print("finish data loading")
   raw_data = rawdata_nontrans + [0] + rawdata_transfer
   input_dim = 11 # dim(x)
-  embed_dim = 4 # dim(\phi(x))
-  task_dim = 33 # dim(w)
+  embed_dim = 2 # dim(\phi(x))
+  task_dim = 9 # dim(w)
   source_task_dict = {}
   test_task_dict = {}
 
@@ -58,6 +58,8 @@ if __name__ == "__main__":
         # input_data.append(np.array(extract_features(task_data,shared_features)))
         # input_label.append(task_data["fa"][:,dim])
         count += 1
+        if count >= task_dim:
+            break
         task_name = f"{transfer}_{wind_speed}_{fa_list[dim]}"
         input_data[task_name] = np.array(extract_features(task_data,shared_features))
         input_label[task_name] = task_data["fa"][:,dim]
@@ -76,7 +78,7 @@ if __name__ == "__main__":
 
   outer_epoch_num = 10
   base_len_ratio = 1
-  exp_base = 1.2
+  exp_base = 1
   condi = 3
   culmulative_budgets = []
   losses = []
@@ -87,12 +89,14 @@ if __name__ == "__main__":
 
 
   config = {"trainer_name":"pytorch_passive", "max_epoch": 10, "train_batch_size": 1000, "lr": 0.005, "num_workers": 4,\
-                    "optim_name": "AdamW", "scheduler_name": "StepLR", "step_size": 100, "gamma": 0.1,
+                    "optim_name": "AdamW", "scheduler_name": "StepLR", "step_size": 50, "gamma": 0.1,
                     "test_batch_size": 500}
   seed = args.seed
   config = get_optimizer_fn(config)
   config = get_scheduler_fn(config)
+  hidden_layers = [input_dim, embed_dim]
   model = ModifiedBiLinear(input_dim, task_dim, embed_dim, ret_emb = False)
+#   model = ModifiedShallow(input_dim, task_dim, hidden_layers, ret_emb = False, seed = seed)
   trainer = PyTorchPassiveTrainer(config, model)
   strategy_base = RandomSampling(task_dict, 1)
   strategy_base_fix = FixBaseSampling(test_task_dict,fixed_inner_epoch_num=None)
@@ -114,10 +118,10 @@ if __name__ == "__main__":
           # dataset.generate_synthetic_data(cur_task_dict, noise_var=1, seed=(154245) if outer_epoch==0 else None) # noise_var=0.2
         #   dataset.input_ws.update(cur_task_dict)
           source_task_dict.update(cur_task_dict)
-          if not outer_epoch == 0:
+          if not outer_epoch == 0 and task_dim > 1:
             # dataset.input_ws[list(input_ws.keys())[task_dim-1]] = (w_matrix[task_dim-1],0)
             source_task_dict[list(input_ws.keys())[task_dim-1]] = (w_matrix[task_dim-1],0)
-          print(source_task_dict)
+        #   print(source_task_dict)
           # Note here we retrain the model from scratch for each outer epoch. Can we do better? (i.e. start from previous model)
           total_training_loss += trainer.train(dataset, source_task_dict , freeze_rep = False, need_print=False, seed = seed)
           inner_epoch += 1
@@ -156,7 +160,7 @@ if __name__ == "__main__":
   # results_name = f"embed_dim{config['embed_dim']}"
   # results_name += "_active" if config["active"] else "_passive"
   # results_name += "_saving_task_num" if config["saving_task_num"] else "_not_saving_task_num"
-  results_name = "losses_target_agnostic"
+  results_name = "losses_target_agnostic_linear"
   
   results.to_csv(f"baseline_results/{results_name}_taskdim{task_dim}_seed{seed}.csv", index=False)
 

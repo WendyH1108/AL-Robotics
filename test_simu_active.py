@@ -27,13 +27,13 @@ if __name__ == "__main__":
   args = parser.parse_args()
   shared_features = ['v', 'q', 'pwm']
   rawdata_nontrans = load_data("./data/training/")
-  rawdata_transfer = load_data("./data/training-transfer/")
-  # rawdata_transfer = []
+  # rawdata_transfer = load_data("./data/training-transfer/")
+  rawdata_transfer = []
   print("finish data loading")
   raw_data = rawdata_nontrans + [0] + rawdata_transfer
   input_dim = 11 # dim(x)
-  embed_dim = 4 # dim(\phi(x))
-  task_dim = 33 # dim(w)
+  embed_dim = 2 # dim(\phi(x))
+  task_dim = 18 # dim(w)
   source_task_dict = {}
   test_task_dict = {}
 
@@ -74,7 +74,7 @@ if __name__ == "__main__":
 
   outer_epoch_num = 10
   base_len_ratio = 1
-  exp_base = 1.2
+  exp_base = 1
   condi = 3
   culmulative_budgets = []
   losses = []
@@ -83,13 +83,15 @@ if __name__ == "__main__":
   task_embed_space_est_similarities_lower = []
   avg_training_loss = []
 
-  config = {"trainer_name":"pytorch_passive", "max_epoch": 20, "train_batch_size": 1000, "lr": 0.01, "num_workers": 4,\
-                    "optim_name": "AdamW", "scheduler_name": "StepLR", "step_size": 500, "gamma": 0.1,
+  config = {"trainer_name":"pytorch_passive", "max_epoch": 10, "train_batch_size": 1000, "lr": 0.005, "num_workers": 4,\
+                    "optim_name": "AdamW", "scheduler_name": "StepLR", "step_size": 50, "gamma": 0.1,
                     "test_batch_size": 500}
   seed = args.seed
   config = get_optimizer_fn(config)
   config = get_scheduler_fn(config)
-  model = ModifiedBiLinear(input_dim, task_dim, embed_dim, ret_emb = False)
+  hidden_layers = [input_dim, embed_dim]
+  # model = ModifiedBiLinear(input_dim, task_dim, embed_dim, ret_emb = False)
+  model = ModifiedShallow(input_dim, task_dim, hidden_layers, ret_emb = False, seed = seed)
   trainer = PyTorchPassiveTrainer(config, model)
   strategy = MTALSampling(test_task_dict, fixed_inner_epoch_num=None, mode="target_awared")
   copy_input_ws = dataset.input_ws.copy()
