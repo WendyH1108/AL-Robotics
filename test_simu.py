@@ -34,7 +34,7 @@ if __name__ == "__main__":
   raw_data = rawdata_nontrans + [0] + rawdata_transfer
   input_dim = 11 # dim(x)
   embed_dim = 2 # dim(\phi(x))
-  task_dim = 9 # dim(w)
+  task_dim = 18 # dim(w)
   source_task_dict = {}
   test_task_dict = {}
 
@@ -95,8 +95,8 @@ if __name__ == "__main__":
   config = get_optimizer_fn(config)
   config = get_scheduler_fn(config)
   hidden_layers = [input_dim, embed_dim]
-  model = ModifiedBiLinear(input_dim, task_dim, embed_dim, ret_emb = False)
-#   model = ModifiedShallow(input_dim, task_dim, hidden_layers, ret_emb = False, seed = seed)
+#   model = ModifiedBiLinear(input_dim, task_dim, embed_dim, ret_emb = False)
+  model = ModifiedShallow(input_dim, task_dim, hidden_layers, ret_emb = False, seed = seed)
   trainer = PyTorchPassiveTrainer(config, model)
   strategy_base = RandomSampling(task_dict, 1)
   strategy_base_fix = FixBaseSampling(test_task_dict,fixed_inner_epoch_num=None)
@@ -129,6 +129,8 @@ if __name__ == "__main__":
           source_task_dict.update(copy_source_task_dict)
           
       avg_training_loss.append(total_training_loss/end_of_epoch)
+      target_name = list(input_ws.keys())[task_dim-1]
+      _ = trainer.train(dataset, {target_name: source_task_dict[target_name]} , freeze_rep = True, need_print=False, seed = seed)
       avg_Loss = trainer.test(dataset, test_task_dict,device = "cpu")
       losses.append(avg_Loss)
       if culmulative_budgets:
@@ -160,7 +162,7 @@ if __name__ == "__main__":
   # results_name = f"embed_dim{config['embed_dim']}"
   # results_name += "_active" if config["active"] else "_passive"
   # results_name += "_saving_task_num" if config["saving_task_num"] else "_not_saving_task_num"
-  results_name = "losses_target_agnostic_linear"
+  results_name = "losses_target_agnostic_mlp"
   
   results.to_csv(f"baseline_results/{results_name}_taskdim{task_dim}_seed{seed}.csv", index=False)
 

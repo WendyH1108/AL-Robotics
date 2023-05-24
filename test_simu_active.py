@@ -127,6 +127,8 @@ if __name__ == "__main__":
     #   break
       # print(source_task_dict) 
       avg_training_loss.append(total_training_loss/end_of_epoch)
+      target_name = list(input_ws.keys())[task_dim-1]
+      _ = trainer.train(dataset, {target_name: source_task_dict[target_name]} , freeze_rep = True, need_print=False, seed = seed)
       avg_Loss = trainer.test(dataset, test_task_dict,device = "cpu")
       losses.append(avg_Loss)
       if culmulative_budgets:
@@ -158,7 +160,7 @@ if __name__ == "__main__":
   # results_name = f"embed_dim{config['embed_dim']}"
   # results_name += "_active" if config["active"] else "_passive"
   # results_name += "_saving_task_num" if config["saving_task_num"] else "_not_saving_task_num"
-  results_name = "losses_target_agnostic"
+  results_name = "losses_target_agnostic_mlp"
   
   results.to_csv(f"active_results/{results_name}_taskdim{task_dim}_seed{seed}.csv", index=False)
 
